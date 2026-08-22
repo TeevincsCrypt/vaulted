@@ -136,10 +136,17 @@ deliberately — the trade-off is a trusted party versus a dispute with no third
 
 ```bash
 cp .env.example .env.local     # set DATABASE_URL
-pnpm install
-pnpm db:deploy                 # or: pnpm db:push
-pnpm dev
+npm install                    # or `npm ci` for an exact lockfile install
+npm run db:deploy              # or: npm run db:push
+npm run dev
 ```
+
+**Always run Prisma through the npm scripts, never as bare `npx prisma`.** `prisma` and
+`@prisma/client` are pinned to exactly `6.19.3`, and the scripts resolve the binary from
+`node_modules/.bin`. A bare `npx prisma` in a tree with no `node_modules` downloads the latest
+published CLI (Prisma 7), which rejects this schema with
+`P1012: The datasource property url is no longer supported in schema files` — Prisma 7 moved
+`datasource.url` into a config file. This project stays on Prisma 6.
 
 ### 4. Local end-to-end
 
@@ -150,11 +157,11 @@ cd contracts && TOKEN=$(npx hardhat run scripts/deploy-dev-token.js --network lo
      npx hardhat run scripts/deploy.js --network localhost
 
 # .env.local: NEXT_PUBLIC_CHAIN_ID=31337, NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8545
-pnpm db:push && pnpm dev
+npm run db:push && npm run dev
 
-pnpm e2e:local        # drives the whole path and asserts it against the chain
-pnpm seed:local       # escrows in every state, for looking at the UI
-pnpm check:escrow-id  # pins the app's id derivation to the contract's
+npm run e2e:local        # drives the whole path and asserts it against the chain
+npm run seed:local       # escrows in every state, for looking at the UI
+npm run check:escrow-id  # pins the app's id derivation to the contract's
 ```
 
 `check:escrow-id` compares the app's viem escrow-id derivation against vectors produced by the real
