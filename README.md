@@ -141,6 +141,12 @@ npm run db:deploy              # or: npm run db:push
 npm run dev
 ```
 
+`npm run build` runs `prisma migrate deploy` before bundling, so a deployment either brings the
+database to the committed migration state or fails. It never ships an app whose schema is missing —
+which is what produces `P2021: The table public.Invoice does not exist` on the first request. The
+step is skipped (with a warning) when `DATABASE_URL` is absent, so a build with no database still
+works.
+
 **Always run Prisma through the npm scripts, never as bare `npx prisma`.** `prisma` and
 `@prisma/client` are pinned to exactly `6.19.3`, and the scripts resolve the binary from
 `node_modules/.bin`. A bare `npx prisma` in a tree with no `node_modules` downloads the latest
@@ -170,6 +176,36 @@ contract. If those drift, a payment link resolves to an escrow id that does not 
 Deploying to the local chain regenerates `lib/vaulted/generated/deployments.ts` with your throwaway
 chain-31337 addresses. That file is committed for real deployments only — leave the local churn out
 of your commits (`git checkout -- lib/vaulted/generated/deployments.ts`).
+
+## Troubleshooting
+
+**`P2021: The table public.Invoice does not exist`** — the app is connected to a database that has
+no schema. Migrations were never applied there, or they were applied to a *different* database than
+the one `DATABASE_URL` points at. Check what that database actually has:
+
+```bash
+DATABASE_URL="<the url the app uses>" npm run db:status
+```
+
+Then apply them:
+
+```bash
+DATABASE_URL="<same url>" npm run db:deploy
+```
+
+A redeploy fixes it too, since `npm run build` now runs the same command.
+
+**`DATABASE_URL resolved to an empty string`** — the variable exists but is empty. On Vercel, check
+it is set for the environment being built (Production is separate from Preview), that the value has
+no wrapping quotes or trailing newline, and redeploy: environment changes do not apply to an
+existing deployment.
+
+**Migrations fail against a pooled connection.** Neon and Supabase hand out a pooled (PgBouncer)
+URL alongside a direct one. Queries work fine over the pooler; `migrate deploy` needs the direct
+connection. If migrations hang or error while normal queries work, run them against the direct URL.
+
+**Prisma CLI reports version 7.x** — you ran a bare `npx prisma` in a tree with no `node_modules`,
+so npx downloaded the latest published CLI. Run `npm ci`, then use the `npm run db:*` scripts.
 
 ## Contract reference
 
