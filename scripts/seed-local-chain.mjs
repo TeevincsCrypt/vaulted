@@ -14,7 +14,7 @@ import { hardhat } from 'viem/chains'
 import { readFileSync } from 'node:fs'
 import { generateInvoiceId, invoiceCreationMessage, escrowSalt, detailsHash } from '../lib/vaulted/invoice.ts'
 
-const API = 'http://127.0.0.1:3300'
+const API = process.env.VAULTED_APP_URL ?? 'http://127.0.0.1:3000'
 const RPC = 'http://127.0.0.1:8545'
 const dep = JSON.parse(readFileSync(new URL('../contracts/deployments/31337.json', import.meta.url), 'utf8'))
 const ABI = dep.abi

@@ -14,11 +14,14 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:status": "prisma migrate status",
+    "db:baseline": "prisma migrate resolve --applied 20260822093000_init",
     "db:push": "prisma db push",
-    "check:escrow-id": "node --experimental-strip-types scripts/check-escrow-id-vector.mjs",
-    "e2e:local": "node --experimental-strip-types scripts/e2e-invoice-flow.mjs",
-    "seed:local": "node --experimental-strip-types scripts/seed-local-chain.mjs",
-    "typecheck": "tsc --noEmit"
+    "check:escrow-id": "tsx scripts/check-escrow-id-vector.mjs",
+    "e2e:local": "tsx scripts/e2e-invoice-flow.mjs",
+    "seed:local": "tsx scripts/seed-local-chain.mjs",
+    "typecheck": "tsc --noEmit",
+    "check:adapters": "tsx scripts/check-adapters.mjs",
+    "check": "npm run typecheck && npm run check:escrow-id && npm run check:adapters"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -38,6 +41,7 @@
     "@types/react-dom": "^19",
     "postcss": "^8.5",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.3"
   }
 }

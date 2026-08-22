@@ -17,7 +17,7 @@ model Invoice {
   id String @id
 
   /// keccak256 of the invoice id — the contract's per-payee salt.
-  salt String
+  salt     String
   /// Deterministic id of the escrow in the contract, derivable before the escrow exists.
   escrowId String
 
@@ -28,9 +28,9 @@ model Invoice {
   tokenDecimals Int
 
   /// Freelancer receiving the funds. Verified by signature at creation.
-  payeeAddress String
+  payeeAddress    String
   /// Client expected to pay. Null for an open link that anybody may fund.
-  payerAddress String?
+  payerAddress    String?
   /// Address that actually funded the escrow, once observed on chain.
   fundedByAddress String?
 
@@ -61,6 +61,14 @@ model Invoice {
   fundTxHash   String?
   settleTxHash String?
 
+  /// Registry key of the chain this escrow lives on (`base-sepolia`, `solana-devnet`, …).
+  /// Nullable because rows predating multi-chain carry only the numeric EVM chainId.
+  chainKey String?
+
+  /// Set when this escrow is the payment for a Job. The invoice flow works without one.
+  jobId String? @unique
+  job   Job?    @relation(fields: [jobId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -69,4 +77,113 @@ model Invoice {
   @@index([payerAddress, createdAt])
   @@index([indexedStatus])
   @@index([chainId, expiresAt])
+}
+
+/// A handle that resolves to wallet addresses, so a payment can be addressed to `@alice`.
+///
+/// Ownership is cryptographic, never asserted: a handle is only created after a signature over the
+/// canonical claim message recovers to `ownerAddress`. There is no admin path to assign one.
+model Username {
+  id String @id @default(cuid())
+
+  /// Lowercased handle, stored without the leading `@`.
+  name String @unique
+
+  /// Wallet that proved ownership when the handle was claimed.
+  ownerAddress  String
+  /// Registry key of the chain that wallet signed on.
+  ownerChainKey String
+
+  /// The claim signature, retained so the claim stays independently auditable.
+  claimSignature String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  addresses UsernameAddress[]
+
+  @@index([ownerAddress])
+}
+
+/// One verified address per chain for a handle, so `@alice` can resolve differently on each chain.
+///
+/// A row only exists once a signature proved control of that address. Unverified addresses are
+/// rejected rather than stored as pending — an unproven mapping would misdirect real money.
+model UsernameAddress {
+  id         String @id @default(cuid())
+  usernameId String
+
+  /// Registry key of the chain this address is for.
+  chainKey String
+  address  String
+
+  /// Signature proving control of `address`.
+  proofSignature String
+  verifiedAt     DateTime @default(now())
+
+  username Username @relation(fields: [usernameId], references: [id], onDelete: Cascade)
+
+  @@unique([usernameId, chainKey])
+  @@unique([chainKey, address])
+  @@index([address])
+}
+
+/// A funded piece of work. Jobs sit alongside invoices rather than replacing them: accepting an
+/// applicant produces an ordinary escrow, so the settlement path is the one already in production.
+model Job {
+  id String @id
+
+  title       String
+  description String
+
+  /// Budget in base units of the chain's escrow token — never a float.
+  budgetAmount  String
+  chainKey      String
+  tokenSymbol   String
+  tokenDecimals Int
+
+  deadline         DateTime?
+  /// Protection window, in seconds, the escrow will use once funded.
+  protectionPeriod Int
+
+  /// Wallet that posted the job, proven by signature at creation.
+  clientAddress   String
+  clientSignature String
+
+  /// OPEN | ASSIGNED | CANCELLED. Anything beyond assignment is derived from the escrow on chain,
+  /// so this column never claims a payment state the chain has not confirmed.
+  status String @default("OPEN")
+
+  /// Applicant the client accepted, if any.
+  assignedTo String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications JobApplication[]
+  invoice      Invoice?
+
+  @@index([status, createdAt])
+  @@index([clientAddress])
+  @@index([assignedTo])
+}
+
+/// A freelancer applying to a Job. Signed, so an application cannot be filed in someone else's name.
+model JobApplication {
+  id    String @id @default(cuid())
+  jobId String
+
+  applicantAddress String
+  message          String
+  signature        String
+
+  /// PENDING | ACCEPTED | DECLINED
+  status String @default("PENDING")
+
+  createdAt DateTime @default(now())
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, applicantAddress])
+  @@index([applicantAddress])
 }

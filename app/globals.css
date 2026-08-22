@@ -136,3 +136,127 @@ button {
 .vt-spin {
   animation: vt-spin 0.7s linear infinite;
 }
+
+/* ---------------------------------------------------------------------------
+   Marketing surface
+   The product pages stay light — they are payment UIs and read better that way.
+   The marketing surface is near-black with a single amber accent, scoped under
+   `.vt-dark` so it cannot leak into the app.
+--------------------------------------------------------------------------- */
+.vt-dark {
+  color-scheme: dark;
+  --background: #08080a;
+  --foreground: #f4f4f5;
+  --card: #101014;
+  --card-foreground: #f4f4f5;
+  --muted: #16161b;
+  --muted-foreground: #9a9aa5;
+  --border: #23232b;
+  --input: #2a2a33;
+  --ring: #ff8a00;
+
+  /* Vaulted amber. One accent, used sparingly. */
+  --vt-accent: #ff8a00;
+  --vt-accent-soft: #ffb055;
+  --vt-accent-dim: rgba(255, 138, 0, 0.14);
+
+  --vt-keyhole: #08080a;
+
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.vt-dark ::selection {
+  background: var(--vt-accent);
+  color: #08080a;
+}
+
+/* Ambient wash behind the hero. Two soft radials, no images. */
+.vt-hero-glow {
+  background:
+    radial-gradient(900px 420px at 50% -8%, rgba(255, 138, 0, 0.16), transparent 70%),
+    radial-gradient(700px 400px at 88% 8%, rgba(255, 138, 0, 0.06), transparent 65%);
+}
+
+/* Fine grid, fading out down the page so it never competes with content. */
+.vt-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 85%);
+  mask-image: linear-gradient(to bottom, black, transparent 85%);
+}
+
+/* Very low-amplitude noise, to stop large dark areas from banding. */
+.vt-noise::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.vt-glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.vt-accent-text {
+  color: var(--vt-accent);
+}
+
+/* Hairline that fades at both ends — used as a section divider. */
+.vt-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.11), transparent);
+}
+
+/* Scroll reveal. Starts hidden, and `data-shown` is set by an IntersectionObserver. */
+.vt-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--vt-delay, 0ms);
+}
+
+.vt-reveal[data-shown='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Printing, and any context that flattens the page, must not lose the content. */
+@media print {
+  .vt-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Anyone who has asked for less motion gets the content, immediately, with none of it. */
+@media (prefers-reduced-motion: reduce) {
+  .vt-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .vt-pulse,
+  .vt-spin,
+  .vt-flow-pulse {
+    animation: none !important;
+  }
+}
+
+/* The value travelling down the escrow diagram. */
+@keyframes vt-flow {
+  0% { transform: translateY(-6px); opacity: 0; }
+  25% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { transform: translateY(6px); opacity: 0; }
+}
+
+.vt-flow-pulse {
+  animation: vt-flow 2.4s ease-in-out infinite;
+}

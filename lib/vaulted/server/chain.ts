@@ -2,6 +2,7 @@ import { createPublicClient, http, type PublicClient } from 'viem'
 import { VAULTED_ESCROW_ABI } from '../generated/abi'
 import { getVaultedConfig, isConfigured } from '../config'
 import { EscrowState, displayStatus, type DisplayStatus } from '../status'
+import { serverRpcUrl } from './rpc'
 
 /**
  * Server-side reads of escrow state.
@@ -44,7 +45,7 @@ function publicClientFor(chainId?: number): PublicClient | null {
 
   const client = createPublicClient({
     chain: config.chain,
-    transport: http(config.rpcUrl ?? undefined),
+    transport: http(serverRpcUrl() ?? config.rpcUrl ?? undefined),
   }) as PublicClient
   cachedClient = { chainId: config.chainId, client }
   return client

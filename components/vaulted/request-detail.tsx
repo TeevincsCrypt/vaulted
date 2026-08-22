@@ -60,7 +60,7 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
   return (
     <div className="flex flex-col gap-5">
       <Link
-        href="/"
+        href="/dashboard"
         className="inline-flex w-fit items-center gap-1.5 text-[13px] text-muted-foreground transition hover:text-foreground"
       >
         <ArrowLeft size={14} /> All payment requests

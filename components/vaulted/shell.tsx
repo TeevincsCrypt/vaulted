@@ -30,12 +30,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-border bg-card/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-5">
-          <Link href="/" className="transition-opacity hover:opacity-70">
+          <Link href="/dashboard" className="transition-opacity hover:opacity-70">
             <VaultedMark />
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <nav className="hidden items-center gap-4 sm:flex" aria-label="Primary">
+              <Link href="/dashboard" className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground">
+                Dashboard
+              </Link>
+              <Link href="/jobs" className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground">
+                Jobs
+              </Link>
+            </nav>
             {config && (
-              <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+              <span className="hidden items-center gap-1.5 text-xs text-muted-foreground md:flex">
                 <span className="size-1.5 rounded-full" style={{ background: 'var(--vt-positive)' }} />
                 {config.chain.name}
               </span>

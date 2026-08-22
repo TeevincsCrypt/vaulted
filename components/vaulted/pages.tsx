@@ -2,9 +2,12 @@
 
 import { useState } from 'react'
 import { getVaultedConfig, isConfigured } from '@/lib/vaulted/config'
+import { defaultChain } from '@/lib/vaulted/registry'
 import { useVaultedConfig } from '@/lib/vaulted/client'
 import type { SerialisedInvoice } from '@/lib/vaulted/types'
+import { ChainSelector } from './chain-selector'
 import { CreateRequest } from './create-request'
+import { DashboardOverview } from './dashboard-overview'
 import { PayExperience } from './pay-experience'
 import { RequestDetail } from './request-detail'
 import { RequestsList } from './requests-list'
@@ -23,22 +26,30 @@ function unavailableMessage(): string {
 export function Workspace() {
   const config = useVaultedConfig()
   const [createdCount, setCreatedCount] = useState(0)
+  // The selector reflects the chain the app is configured for; switching targets is only
+  // meaningful once more than one chain is live, so this is display state for now.
+  const [activeChainKey, setActiveChainKey] = useState<string | null>(defaultChain()?.key ?? null)
 
   if (!config) return <NotConfigured message={unavailableMessage()} />
 
   return (
     <AppShell>
-      <div className="mb-9">
-        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">
-          Escrowed payment links
-          <br />
-          <span className="text-muted-foreground">for freelance work.</span>
-        </h1>
-        <p className="mt-3 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-          Send a link. Your client funds a smart contract instead of your wallet. If they go quiet,
-          the escrow settles to you automatically once the protection window closes — no chasing, no
-          intermediary.
-        </p>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Your vaults</h1>
+          <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
+            Escrow state is read from the chain, not from our database. Anything we could not read is
+            marked rather than guessed.
+          </p>
+        </div>
+        <div className="w-full sm:w-[240px]">
+          <p className="vt-eyebrow mb-1.5 text-muted-foreground">Network</p>
+          <ChainSelector value={activeChainKey} onChange={setActiveChainKey} />
+        </div>
+      </div>
+
+      <div className="mb-10">
+        <DashboardOverview key={createdCount} />
       </div>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

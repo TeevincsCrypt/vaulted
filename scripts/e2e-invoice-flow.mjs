@@ -10,7 +10,7 @@
  *        ARBITER_ADDRESS=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 \
  *        npx hardhat run scripts/deploy.js --network localhost
  *   3. DATABASE_URL=... npx prisma db push
- *   4. npx next dev --port 3300     (with NEXT_PUBLIC_CHAIN_ID=31337)
+ *   4. npm run dev     (with NEXT_PUBLIC_CHAIN_ID=31337)
  *
  * Run: node --experimental-strip-types scripts/e2e-invoice-flow.mjs
  */
@@ -20,7 +20,7 @@ import { hardhat } from 'viem/chains'
 import { readFileSync } from 'node:fs'
 import { generateInvoiceId, invoiceCreationMessage, escrowSalt, computeEscrowId } from '../lib/vaulted/invoice.ts'
 
-const API = 'http://127.0.0.1:3300'
+const API = process.env.VAULTED_APP_URL ?? 'http://127.0.0.1:3000'
 const RPC = 'http://127.0.0.1:8545'
 const dep = JSON.parse(readFileSync(new URL('../contracts/deployments/31337.json', import.meta.url), 'utf8'))
 const ABI = dep.abi

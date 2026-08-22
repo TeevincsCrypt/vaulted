@@ -55,10 +55,16 @@ Next.js 16 (App Router) · wagmi 3 + viem 2 · Prisma + Postgres · Solidity 0.8
 | `contracts/test/` | 99 tests: lifecycle, authorisation, timestamps, reentrancy, token failures, invariants |
 | `contracts/scripts/deploy.js` | Deploys and records address, chain, token, tx, ABI |
 | `contracts/deployments/<chainId>.json` | One record per real deployment |
+| `lib/vaulted/registry.ts` | Chain registry — availability derived from deployment records |
+| `lib/vaulted/adapters/` | Chain-agnostic `EscrowAdapter`: EVM implemented, Solana stubbed |
 | `lib/vaulted/` | Config, id/hash derivation, client hooks, server chain reads |
-| `app/api/` | Payment-request REST API |
+| `app/api/` | REST: invoices, chains, jobs, usernames, reputation, dashboard |
+| `app/` | Marketing landing page |
+| `app/dashboard` | Freelancer workspace and vault overview |
 | `app/pay/[invoiceId]` | Client payment page |
-| `app/` | Freelancer workspace |
+| `app/receipt/[invoiceId]` | Shareable proof of payment |
+| `app/jobs` | Funded job board |
+| `docs/SOLANA.md` | Solana program spec — **not implemented** |
 
 ## Where the truth lives
 
@@ -121,6 +127,7 @@ Then point the app at it:
 
 ```
 NEXT_PUBLIC_CHAIN_ID=84532
+RPC_URL=https://...        # optional, server-only — keeps a provider API key out of the bundle
 ```
 
 The addresses come from the committed deployment record, so nothing else needs setting. Chains with
@@ -165,9 +172,12 @@ cd contracts && TOKEN=$(npx hardhat run scripts/deploy-dev-token.js --network lo
 # .env.local: NEXT_PUBLIC_CHAIN_ID=31337, NEXT_PUBLIC_RPC_URL=http://127.0.0.1:8545
 npm run db:push && npm run dev
 
+# Point the scripts at your dev server if it is not on :3000 — VAULTED_APP_URL=http://127.0.0.1:3001
 npm run e2e:local        # drives the whole path and asserts it against the chain
 npm run seed:local       # escrows in every state, for looking at the UI
 npm run check:escrow-id  # pins the app's id derivation to the contract's
+npm run check:adapters   # pins the chain abstraction to the contract, and to honest availability
+npm run check            # typecheck + both of the above
 ```
 
 `check:escrow-id` compares the app's viem escrow-id derivation against vectors produced by the real
@@ -176,6 +186,46 @@ contract. If those drift, a payment link resolves to an escrow id that does not 
 Deploying to the local chain regenerates `lib/vaulted/generated/deployments.ts` with your throwaway
 chain-31337 addresses. That file is committed for real deployments only — leave the local churn out
 of your commits (`git checkout -- lib/vaulted/generated/deployments.ts`).
+
+## Multi-chain
+
+Vaulted separates the application from the chain it settles on. `lib/vaulted/adapters` defines one
+`EscrowAdapter` interface — create, fund, release, refund, dispute, execute timeout, read state,
+derive escrow id, explorer URLs — and each family implements it. The payment flow, dashboard and
+receipt talk to that interface, not to viem.
+
+```
+Vaulted
+├── EVM adapter      → VaultedEscrow Solidity contract   (implemented)
+└── Solana adapter   → Vaulted Solana program            (NOT implemented — docs/SOLANA.md)
+```
+
+A chain's availability is **derived, never declared**: `lib/vaulted/registry.ts` marks an EVM chain
+`live` only when `generated/deployments.ts` carries a deployment record for it, which the deploy
+script writes from a real deployment. Everything else is `coming-soon`, rendered unselectable in the
+chain selector, and rejected server-side by `requireTransactableChain` — so a listed-but-undeployed
+chain cannot produce a job, an invoice, or a transaction.
+
+| Network | State |
+| --- | --- |
+| Base Sepolia | **Live** (testnet) |
+| Base, Ethereum, Arbitrum, Optimism, BNB Chain, Polygon, Avalanche | Coming soon — no deployment |
+| Solana Devnet | Coming soon — program not implemented, see `docs/SOLANA.md` |
+
+## Handles, jobs and reputation
+
+**Handles** (`@alice`) resolve to a verified address per chain. Ownership is cryptographic: a handle
+is created only after a signature over the canonical claim message recovers to the claiming wallet,
+and each linked address needs its own proof. There is no operator path to assign or reassign one.
+Non-EVM addresses are refused rather than stored unverified.
+
+**Jobs** are work posted with a budget. Posting, applying and accepting are all signed actions.
+Accepting an applicant assigns the job — it does not move money; the client then funds an ordinary
+escrow through the existing payment-request flow, so jobs add no new settlement path.
+
+**Reputation** is counted from escrows a wallet actually took part in. There is no seeded score: a
+wallet with no history returns zeroes and `hasActivity: false`, and the completion rate is `null`
+rather than a flattering 0% or 100%.
 
 ## Troubleshooting
 
