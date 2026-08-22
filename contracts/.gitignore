@@ -1,0 +1,8 @@
+node_modules
+artifacts
+cache
+typechain-types
+.env
+coverage
+coverage.json
+deployments/31337.json

@@ -1,0 +1,39 @@
+{
+  "name": "vaulted",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Trustless escrow payment links for freelancers",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "check:escrow-id": "node --experimental-strip-types scripts/check-escrow-id-vector.mjs",
+    "e2e:local": "node --experimental-strip-types scripts/e2e-invoice-flow.mjs",
+    "seed:local": "node --experimental-strip-types scripts/seed-local-chain.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@tanstack/react-query": "^5.101.4",
+    "lucide-react": "^1.16.0",
+    "next": "16.3.0",
+    "prisma": "^6.19.3",
+    "react": "^19",
+    "react-dom": "^19",
+    "viem": "^2.55.13",
+    "wagmi": "^3.7.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "postcss": "^8.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "5.7.3"
+  }
+}

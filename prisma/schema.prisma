@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A Vaulted payment request.
+///
+/// This row is metadata and a cache — never an authority. Escrow status and amounts live on chain;
+/// `indexedStatus` is only the last value observed there, and the UI reads the contract directly
+/// rather than trusting it. There is deliberately no balance column in this model.
+model Invoice {
+  /// Public identifier that appears in the payment URL: /pay/{id}
+  id String @id
+
+  /// keccak256 of the invoice id — the contract's per-payee salt.
+  salt String
+  /// Deterministic id of the escrow in the contract, derivable before the escrow exists.
+  escrowId String
+
+  chainId       Int
+  escrowAddress String
+  tokenAddress  String
+  tokenSymbol   String
+  tokenDecimals Int
+
+  /// Freelancer receiving the funds. Verified by signature at creation.
+  payeeAddress String
+  /// Client expected to pay. Null for an open link that anybody may fund.
+  payerAddress String?
+  /// Address that actually funded the escrow, once observed on chain.
+  fundedByAddress String?
+
+  /// Amount in token base units, as a decimal string — never a float.
+  amount      String
+  description String
+  /// Commitment to the terms above, also stored on chain so the client can verify the link.
+  detailsHash String
+
+  /// Seconds between funding and expiry.
+  protectionPeriod Int
+  fundingDeadline  DateTime?
+
+  /// Signature by payeeAddress over the creation message, proving they published this link.
+  creationSignature String
+
+  /// Last status observed on chain. Advisory only.
+  indexedStatus String    @default("AWAITING_CHAIN")
+  indexedAt     DateTime?
+  indexedBlock  BigInt?
+
+  /// Funding time and expiry as recorded by the contract, mirrored for listing and sorting.
+  fundedAt  DateTime?
+  expiresAt DateTime?
+
+  /// Transaction hashes reported by clients, shown as links. The chain remains the authority.
+  createTxHash String?
+  fundTxHash   String?
+  settleTxHash String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([chainId, escrowId])
+  @@index([payeeAddress, createdAt])
+  @@index([payerAddress, createdAt])
+  @@index([indexedStatus])
+  @@index([chainId, expiresAt])
+}
