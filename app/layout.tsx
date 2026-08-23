@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { SessionProvider } from '@/components/vaulted/session-provider'
 import { Web3Provider } from '@/components/web3-provider'
 
 export const metadata: Metadata = {
@@ -9,15 +10,17 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light',
-  themeColor: '#ffffff',
+  colorScheme: 'dark',
+  themeColor: '#08080a',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body>
-        <Web3Provider>{children}</Web3Provider>
+        <SessionProvider>
+          <Web3Provider>{children}</Web3Provider>
+        </SessionProvider>
       </body>
     </html>
   )

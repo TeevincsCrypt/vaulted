@@ -144,10 +144,19 @@ export function EscrowActions({
             )}
 
             {canCancel && (
-              <Button full variant="ghost" busy={busy} onClick={call('cancel')}>
-                <Ban size={16} />
-                Cancel this payment request
-              </Button>
+              <div className="flex flex-col gap-1.5">
+                <Button full variant="ghost" busy={busy} onClick={call('cancel')}>
+                  <Ban size={16} />
+                  Cancel this payment request
+                </Button>
+                {/*
+                  The escrow already exists on chain, so withdrawing it is a state transition and
+                  costs gas. It moves no money — nothing is locked until the client funds it.
+                */}
+                <p className="text-center text-[11px] text-muted-foreground">
+                  This is an on-chain transaction and costs gas. No funds move — nothing is locked yet.
+                </p>
+              </div>
             )}
           </div>
         </NetworkGuard>

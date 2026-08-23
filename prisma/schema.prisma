@@ -79,53 +79,84 @@ model Invoice {
   @@index([chainId, expiresAt])
 }
 
-/// A handle that resolves to wallet addresses, so a payment can be addressed to `@alice`.
+/// A Vaulted account, backed by a Twitter/X identity.
 ///
-/// Ownership is cryptographic, never asserted: a handle is only created after a signature over the
-/// canonical claim message recovers to `ownerAddress`. There is no admin path to assign one.
-model Username {
+/// The handle is not self-asserted: it comes from the OAuth provider, so `@alice` on Vaulted is the
+/// same `@alice` on Twitter. Wallets are separate and each needs its own signature — logging in
+/// proves who you are, signing proves which wallet is yours, and payments need the second.
+///
+/// Mapped onto the original `Username` table so no data or table is dropped.
+model Account {
   id String @id @default(cuid())
 
+  /// Immutable Twitter/X user id. The handle can change; this cannot.
+  twitterId   String? @unique
   /// Lowercased handle, stored without the leading `@`.
-  name String @unique
+  name        String  @unique
+  displayName String?
+  avatarUrl   String?
 
-  /// Wallet that proved ownership when the handle was claimed.
-  ownerAddress  String
-  /// Registry key of the chain that wallet signed on.
-  ownerChainKey String
-
-  /// The claim signature, retained so the claim stays independently auditable.
-  claimSignature String
+  /// Primary wallet, once one has been linked and proven.
+  ownerAddress   String?
+  ownerChainKey  String?
+  /// Signature that proved the primary wallet. Retained so the link stays auditable.
+  claimSignature String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  addresses UsernameAddress[]
+  addresses     LinkedWallet[]
+  notifications Notification[]
 
   @@index([ownerAddress])
+  @@map("Username")
 }
 
-/// One verified address per chain for a handle, so `@alice` can resolve differently on each chain.
+/// One verified wallet per chain for an account, so `@alice` resolves differently per network.
 ///
-/// A row only exists once a signature proved control of that address. Unverified addresses are
+/// A row exists only once a signature proved control of the address. Unverified addresses are
 /// rejected rather than stored as pending — an unproven mapping would misdirect real money.
-model UsernameAddress {
+model LinkedWallet {
   id         String @id @default(cuid())
   usernameId String
 
-  /// Registry key of the chain this address is for.
   chainKey String
   address  String
 
-  /// Signature proving control of `address`.
   proofSignature String
   verifiedAt     DateTime @default(now())
 
-  username Username @relation(fields: [usernameId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [usernameId], references: [id], onDelete: Cascade)
 
   @@unique([usernameId, chainKey])
   @@unique([chainKey, address])
   @@index([address])
+  @@map("UsernameAddress")
+}
+
+/// In-app notification. Written when something real happens, never speculatively.
+model Notification {
+  id        String @id @default(cuid())
+  accountId String
+
+  /// JOB_POSTED | JOB_APPLICATION | JOB_HIRED | JOB_DECLINED
+  type  String
+  title String
+  body  String
+
+  /// Where the notification points.
+  href String?
+
+  jobId     String?
+  invoiceId String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, readAt, createdAt])
+  @@index([accountId, createdAt])
 }
 
 /// A funded piece of work. Jobs sit alongside invoices rather than replacing them: accepting an

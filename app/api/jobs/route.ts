@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAccount } from '@/lib/vaulted/server/accounts'
 import { ApiError } from '@/lib/vaulted/server/auth'
 import { createJob, listJobs, serialiseJob } from '@/lib/vaulted/server/jobs'
 
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    await requireAccount()
     const body = await request.json()
     const job = await createJob({
       jobId: String(body.jobId ?? ''),

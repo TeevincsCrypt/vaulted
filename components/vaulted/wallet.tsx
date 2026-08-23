@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Wallet, X } from 'lucide-react'
+import { QrCode, Wallet, X } from 'lucide-react'
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi'
 import { useVaultedConfig, useWrongNetwork } from '@/lib/vaulted/client'
 import { shortAddress } from '@/lib/vaulted/format'
@@ -74,8 +74,8 @@ export function WalletDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="vt-wallet-title">
-      <button type="button" className="absolute inset-0 bg-[#0a0a0b]/40 backdrop-blur-[2px]" onClick={onClose} aria-label="Close" />
-      <div className="relative z-10 w-full max-w-[400px] rounded-t-2xl border border-border bg-card p-6 shadow-2xl sm:rounded-2xl">
+      <button type="button" className="absolute inset-0 bg-black/60 backdrop-blur-[3px]" onClick={onClose} aria-label="Close" />
+      <div className="relative z-10 w-full max-w-[400px] rounded-t-2xl border border-border bg-popover p-6 shadow-2xl sm:rounded-2xl">
         <div className="flex items-start justify-between">
           <div>
             <h2 id="vt-wallet-title" className="text-[17px] font-semibold tracking-tight">
@@ -91,38 +91,58 @@ export function WalletDialog({ open, onClose }: { open: boolean; onClose: () => 
         </div>
 
         <div className="mt-5 flex flex-col gap-2">
-          {injected.map((connector) => (
-            <button
-              key={connector.uid}
-              type="button"
-              disabled={isPending}
-              onClick={() => connect({ connector })}
-              className="flex items-center gap-3 rounded-xl border border-border px-4 py-3.5 text-left transition hover:bg-muted disabled:opacity-50"
-            >
-              <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-[13px] font-semibold">
-                {connector.name.slice(0, 1)}
-              </span>
-              <span className="text-sm font-medium">{connector.name}</span>
-            </button>
-          ))}
-
-          {walletConnect && (
+          {/*
+            WalletConnect first: it is the option that works with no browser extension, which is
+            the only route available on mobile and for anyone who has not installed one.
+          */}
+          {walletConnect ? (
             <button
               type="button"
               disabled={isPending}
               onClick={() => connect({ connector: walletConnect })}
-              className="flex items-center gap-3 rounded-xl border border-border px-4 py-3.5 text-left transition hover:bg-muted disabled:opacity-50"
+              className="flex items-center gap-3 rounded-xl border px-4 py-3.5 text-left transition disabled:opacity-50"
+              style={{ borderColor: 'rgba(255,138,0,0.32)', background: 'var(--vt-accent-dim)' }}
             >
-              <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-[13px] font-semibold">W</span>
-              <span className="text-sm font-medium">WalletConnect</span>
+              <span className="flex size-9 items-center justify-center rounded-lg" style={{ background: 'var(--vt-accent)' }}>
+                <QrCode size={17} color="#08080a" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">WalletConnect</span>
+                <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                  Scan with any mobile wallet — no extension needed
+                </span>
+              </span>
             </button>
+          ) : (
+            <Notice tone="warn" title="WalletConnect is not configured">
+              Set <span className="font-mono text-[11px]">NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID</span> to
+              enable connecting without a browser extension. Get a free project id at
+              cloud.reown.com, then redeploy.
+            </Notice>
           )}
 
-          {injected.length === 0 && !walletConnect && (
-            <Notice tone="warn">
-              No wallet was detected in this browser. Install a wallet extension, or set
-              NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to enable WalletConnect.
-            </Notice>
+          {injected.length > 0 && (
+            <>
+              <div className="my-1 flex items-center gap-3">
+                <span className="h-px flex-1 bg-border" />
+                <span className="text-[11px] text-muted-foreground">or use an extension</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              {injected.map((connector) => (
+                <button
+                  key={connector.uid}
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => connect({ connector })}
+                  className="flex items-center gap-3 rounded-xl border border-border px-4 py-3.5 text-left transition hover:bg-muted disabled:opacity-50"
+                >
+                  <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-[13px] font-semibold">
+                    {connector.name.slice(0, 1)}
+                  </span>
+                  <span className="text-sm font-medium">{connector.name}</span>
+                </button>
+              ))}
+            </>
           )}
         </div>
 
@@ -158,5 +178,35 @@ export function NetworkGuard({ children }: { children: React.ReactNode }) {
         Switch to {config?.chain.name ?? `chain ${expected}`}
       </Button>
     </div>
+  )
+}
+
+
+/**
+ * Compact wallet indicator for the header. Distinct from the account chip: the Twitter account is
+ * who you are, the wallet is what pays and gets paid, and the header shows both.
+ */
+export function WalletBadge() {
+  const { address, isConnected } = useAccount()
+  const dialog = useWalletDialog()
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => dialog.setOpen(true)}
+        className="flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-1.5 text-[12.5px] transition hover:bg-muted"
+        title={isConnected && address ? address : 'Connect a wallet'}
+      >
+        <span
+          className="size-1.5 rounded-full"
+          style={{ background: isConnected ? 'var(--vt-positive)' : 'var(--muted-foreground)' }}
+        />
+        <span className="hidden font-mono sm:block">
+          {isConnected && address ? shortAddress(address) : 'No wallet'}
+        </span>
+      </button>
+      <WalletDialog open={dialog.open} onClose={() => dialog.setOpen(false)} />
+    </>
   )
 }

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { Receipt } from '@/components/vaulted/receipt'
 import { formatAmount } from '@/lib/vaulted/format'
 import { getInvoice, serialiseInvoice } from '@/lib/vaulted/server/invoices'
-import { handlesForAddresses } from '@/lib/vaulted/server/usernames'
+import { handlesForAddresses } from '@/lib/vaulted/server/accounts'
 import type { SerialisedInvoice } from '@/lib/vaulted/types'
 
 export const dynamic = 'force-dynamic'

@@ -59,8 +59,12 @@ Next.js 16 (App Router) · wagmi 3 + viem 2 · Prisma + Postgres · Solidity 0.8
 | `lib/vaulted/adapters/` | Chain-agnostic `EscrowAdapter`: EVM implemented, Solana stubbed |
 | `lib/vaulted/` | Config, id/hash derivation, client hooks, server chain reads |
 | `app/api/` | REST: invoices, chains, jobs, usernames, reputation, dashboard |
-| `app/` | Marketing landing page |
-| `app/dashboard` | Freelancer workspace and vault overview |
+| `app/` | Marketing landing page (public) |
+| `app/login` | Sign in with X (public) |
+| `app/dashboard` | Vault overview, read live from chain |
+| `app/request` | Create an escrow-protected payment request |
+| `app/work` | Jobs you applied to, and the escrow behind anything you were hired for |
+| `app/settings` | Link and verify wallets |
 | `app/pay/[invoiceId]` | Client payment page |
 | `app/receipt/[invoiceId]` | Shareable proof of payment |
 | `app/jobs` | Funded job board |
@@ -186,6 +190,50 @@ contract. If those drift, a payment link resolves to an escrow id that does not 
 Deploying to the local chain regenerates `lib/vaulted/generated/deployments.ts` with your throwaway
 chain-31337 addresses. That file is committed for real deployments only — leave the local churn out
 of your commits (`git checkout -- lib/vaulted/generated/deployments.ts`).
+
+## Accounts and sign-in
+
+Vaulted is account-based. The product surfaces — dashboard, request, jobs, my work, settings — are
+gated server-side and redirect a signed-out visitor to `/login`. **Payment and receipt pages are
+deliberately public**: a client paying an invoice must never be made to create an account.
+
+Identity comes from X/Twitter OAuth 2.0 (PKCE, confidential client, hand-rolled — no auth
+dependency). Your X handle becomes your Vaulted handle, so a request can be addressed to `@you`.
+
+Signing in and getting paid are separate on purpose:
+
+- **Signing in** proves who you are. It grants Vaulted nothing over your funds.
+- **Linking a wallet** needs a signature from that wallet, at `/settings`. Only a linked, proven
+  wallet can be resolved from a handle — an unverified mapping would misdirect real money.
+
+Sessions are HMAC-signed cookies (httpOnly, SameSite=Lax, `Secure` in production) with a
+constant-time comparison and a 30-day expiry. `AUTH_SECRET` has no fallback default: without it,
+sign-in is disabled rather than running on a guessable key.
+
+Required to enable it: `AUTH_SECRET`, `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET`. Register the
+callback as `<origin>/api/auth/twitter/callback`. Until they are set, `/login` says so plainly.
+
+## Connecting a wallet without an extension
+
+WalletConnect is offered first in the connect dialog — it is the only route that works on mobile or
+for anyone without a browser extension. It needs a free project id from
+[cloud.reown.com](https://cloud.reown.com) in `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. Without it the
+dialog says so rather than silently showing extension-only options.
+
+## Notifications
+
+In-app, polled every 30 seconds while signed in — there is no websocket and none is implied. Written
+only when something actually happened:
+
+| Event | Who is notified |
+| --- | --- |
+| A job is posted | every account except the poster |
+| Someone applies | the client who posted the job |
+| An applicant is hired | that applicant |
+| Another applicant is passed over | those applicants |
+
+Delivery failures never fail the action that triggered them — a notification is a side effect, not a
+precondition.
 
 ## Multi-chain
 

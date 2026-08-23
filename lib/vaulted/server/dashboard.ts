@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { adapterFor, ChainNotImplementedError } from '../adapters'
 import { getChain, getChainByEvmId, type VaultedChain } from '../registry'
 import { displayStatus, EscrowState, type DisplayStatus } from '../status'
-import { handlesForAddresses } from './usernames'
+import { handlesForAddresses } from './accounts'
 
 /**
  * The dashboard's data, assembled from the database for *metadata* and the chain for *state*.

@@ -99,7 +99,7 @@ export function DashboardOverview() {
               onClick={() => setSection(entry.key)}
               className={`rounded-lg px-3 py-1.5 text-[13px] transition ${
                 section === entry.key
-                  ? 'bg-foreground text-background'
+                  ? 'bg-[var(--vt-accent)] text-[#08080a] font-medium'
                   : 'border border-border text-muted-foreground hover:bg-muted'
               }`}
             >

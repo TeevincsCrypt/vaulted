@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, Check, Link2, PenLine, ShieldCheck } from 'lucide-react'
 import { isAddress } from 'viem'
@@ -41,15 +41,50 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
   const [invoiceId, setInvoiceId] = useState<string | null>(null)
 
   const [clientAddress, setClientAddress] = useState('')
+  // A handle typed into the client field is resolved to the wallet linked to that account.
+  const [resolving, setResolving] = useState(false)
+  const [resolved, setResolved] = useState<{ handle: string; address: string | null } | null>(null)
   const [amountInput, setAmountInput] = useState('')
   const [description, setDescription] = useState('')
   const [protectionPeriod, setProtectionPeriod] = useState(config.defaultProtectionPeriod)
   const [deadlineDays, setDeadlineDays] = useState('')
 
   const amount = useMemo(() => parseAmount(amountInput, config.token.decimals), [amountInput, config.token.decimals])
-  const clientValid = clientAddress.trim() === '' || isAddress(clientAddress.trim())
-  const sameWallet =
-    Boolean(address) && clientAddress.trim().toLowerCase() === address?.toLowerCase()
+
+  const raw = clientAddress.trim()
+  const looksLikeHandle = raw.startsWith('@') || /^[a-z0-9_]{3,20}$/i.test(raw)
+  const resolvedAddress = resolved?.address ?? null
+  const effectiveClient = isAddress(raw) ? raw : resolvedAddress
+  const clientValid =
+    raw === '' || isAddress(raw) || (looksLikeHandle && resolved !== null && resolved.address !== null)
+
+  // Resolve a typed handle, debounced, whenever it is not already an address.
+  useEffect(() => {
+    if (raw === '' || isAddress(raw) || !looksLikeHandle) {
+      setResolved(null)
+      return
+    }
+    let cancelled = false
+    setResolving(true)
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/accounts/resolve?handle=${encodeURIComponent(raw.replace(/^@/, ''))}&chainKey=${config.chain.id === 84532 ? 'base-sepolia' : ''}`,
+        )
+        const body = await response.json()
+        if (!cancelled) setResolved(body.found ? { handle: body.handle, address: body.address } : null)
+      } catch {
+        if (!cancelled) setResolved(null)
+      } finally {
+        if (!cancelled) setResolving(false)
+      }
+    }, 350)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [raw, looksLikeHandle, config.chain.id])
+  const sameWallet = Boolean(address) && effectiveClient?.toLowerCase() === address?.toLowerCase()
 
   const canSubmit =
     isConnected && Boolean(address) && Boolean(amount) && description.trim().length > 0 && clientValid && !sameWallet
@@ -74,7 +109,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
       escrowAddress: config.escrowAddress,
       tokenAddress: config.token.address,
       payee: address,
-      payer: (clientAddress.trim() || ZERO_ADDRESS) as `0x${string}`,
+      payer: (effectiveClient || ZERO_ADDRESS) as `0x${string}`,
       amount: amount.toString(),
       description: description.trim(),
       protectionPeriod,
@@ -93,7 +128,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
           invoiceId: id,
           chainId: config.chainId,
           payee: address,
-          payer: clientAddress.trim() || null,
+          payer: effectiveClient || null,
           amount: amount.toString(),
           description: description.trim(),
           protectionPeriod,
@@ -236,15 +271,31 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
         </Field>
 
         <Field
-          label="Client wallet"
+          label="Client"
           optional
-          error={!clientValid ? 'That is not a wallet address.' : sameWallet ? 'This cannot be your own wallet.' : null}
-          hint="Leave empty for an open link: the first wallet to fund it becomes the client."
+          error={
+            !clientValid
+              ? looksLikeHandle && !resolving
+                ? resolved === null
+                  ? 'No Vaulted account with that handle.'
+                  : 'That account has not linked a wallet yet, so it cannot be paid.'
+                : 'That is not a wallet address or handle.'
+              : sameWallet
+                ? 'This cannot be your own wallet.'
+                : null
+          }
+          hint={
+            resolving
+              ? 'Looking up that handle…'
+              : resolved?.address
+                ? `@${resolved.handle} → ${resolved.address.slice(0, 10)}…${resolved.address.slice(-6)}`
+                : 'An @handle or a 0x address. Leave empty for an open link anyone can fund.'
+          }
         >
           <input
             value={clientAddress}
             onChange={(event) => setClientAddress(event.target.value)}
-            placeholder="0x…"
+            placeholder="@handle or 0x…"
             spellCheck={false}
             className={`${inputClass} font-mono text-[13px]`}
             disabled={busy}
@@ -261,7 +312,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
                 onClick={() => setProtectionPeriod(preset.seconds)}
                 className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
                   protectionPeriod === preset.seconds
-                    ? 'border-foreground bg-foreground text-background'
+                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
                     : 'border-border hover:bg-muted'
                 }`}
               >

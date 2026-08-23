@@ -449,7 +449,7 @@ function StepDot({ done }: { done: boolean }) {
       style={{
         borderColor: done ? 'var(--vt-positive)' : 'var(--border)',
         background: done ? 'var(--vt-positive)' : 'transparent',
-        color: '#fff',
+        color: 'var(--primary-foreground)',
       }}
     >
       {done && <Check size={10} />}

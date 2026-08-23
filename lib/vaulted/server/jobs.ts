@@ -2,6 +2,7 @@ import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
 import { jobAcceptMessage, jobApplicationMessage, jobCreationMessage } from '../messages'
 import { ApiError, requireSigner, requireTransactableChain } from './auth'
+import { notifyApplicationReceived, notifyDeclined, notifyHired, notifyJobPosted } from './notifications'
 
 /**
  * Jobs: a client posts funded work, freelancers apply, the client accepts one.
@@ -92,7 +93,7 @@ export async function createJob(input: {
     throw new ApiError('That job id is already taken.', 409)
   }
 
-  return prisma.job.create({
+  const job = await prisma.job.create({
     data: {
       id: input.jobId,
       title,
@@ -108,6 +109,9 @@ export async function createJob(input: {
       status: 'OPEN',
     },
   })
+
+  await notifyJobPosted(job)
+  return job
 }
 
 export async function applyToJob(input: {
@@ -138,11 +142,19 @@ export async function applyToJob(input: {
     throw new ApiError('You cannot apply to your own job.', 400)
   }
 
-  return prisma.jobApplication.upsert({
+  const existing = await prisma.jobApplication.findUnique({
+    where: { jobId_applicantAddress: { jobId: job.id, applicantAddress: applicant } },
+  })
+
+  const application = await prisma.jobApplication.upsert({
     where: { jobId_applicantAddress: { jobId: job.id, applicantAddress: applicant } },
     create: { jobId: job.id, applicantAddress: applicant, message: text, signature: input.signature },
     update: { message: text, signature: input.signature },
   })
+
+  // Only on a first application — editing a message should not re-notify the client.
+  if (!existing) await notifyApplicationReceived(job, applicant)
+  return application
 }
 
 /**
@@ -195,6 +207,14 @@ export async function acceptApplicant(input: {
       data: { status: 'DECLINED' },
     }),
   ])
+
+  await notifyHired(job, application.applicantAddress)
+
+  const declined = await prisma.jobApplication.findMany({
+    where: { jobId: job.id, status: 'DECLINED' },
+    select: { applicantAddress: true },
+  })
+  await notifyDeclined(job, declined.map((entry) => entry.applicantAddress))
 
   return updated
 }

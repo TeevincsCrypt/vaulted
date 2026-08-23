@@ -1,12 +1,13 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
+import { Plus } from 'lucide-react'
 import { getVaultedConfig, isConfigured } from '@/lib/vaulted/config'
 import { defaultChain } from '@/lib/vaulted/registry'
 import { useVaultedConfig } from '@/lib/vaulted/client'
 import type { SerialisedInvoice } from '@/lib/vaulted/types'
 import { ChainSelector } from './chain-selector'
-import { CreateRequest } from './create-request'
 import { DashboardOverview } from './dashboard-overview'
 import { PayExperience } from './pay-experience'
 import { RequestDetail } from './request-detail'
@@ -42,9 +43,18 @@ export function Workspace() {
             marked rather than guessed.
           </p>
         </div>
-        <div className="w-full sm:w-[240px]">
-          <p className="vt-eyebrow mb-1.5 text-muted-foreground">Network</p>
-          <ChainSelector value={activeChainKey} onChange={setActiveChainKey} />
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-end">
+          <div className="w-full sm:w-[220px]">
+            <p className="vt-eyebrow mb-1.5 text-muted-foreground">Network</p>
+            <ChainSelector value={activeChainKey} onChange={setActiveChainKey} />
+          </div>
+          <Link
+            href="/request"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-[14px] font-semibold text-[#08080a]"
+            style={{ background: 'var(--vt-accent)' }}
+          >
+            <Plus size={16} /> Request payment
+          </Link>
         </div>
       </div>
 
@@ -52,10 +62,7 @@ export function Workspace() {
         <DashboardOverview key={createdCount} />
       </div>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <CreateRequest config={config} onCreated={() => setCreatedCount((count) => count + 1)} />
-        <RequestsList config={config} refreshKey={createdCount} />
-      </div>
+      <RequestsList config={config} refreshKey={createdCount} />
     </AppShell>
   )
 }

@@ -25,31 +25,44 @@
    status; everything else is ink on paper.
 --------------------------------------------------------------------------- */
 :root {
-  color-scheme: light;
-  --background: #ffffff;
-  --foreground: #0a0a0b;
-  --card: #ffffff;
-  --card-foreground: #0a0a0b;
-  --primary: #0a0a0b;
-  --primary-foreground: #ffffff;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #0a0a0b;
-  --muted: #f6f6f7;
-  --muted-foreground: #6b6b73;
-  --accent: #f0f0f1;
-  --accent-foreground: #0a0a0b;
-  --border: #e6e6e9;
-  --input: #e0e0e4;
-  --ring: #0a0a0b;
+  color-scheme: dark;
 
-  --vt-positive: #12805c;
-  --vt-positive-soft: #e7f6f0;
-  --vt-warning: #9a5b00;
-  --vt-warning-soft: #fdf1de;
-  --vt-danger: #b42318;
-  --vt-danger-soft: #fdecea;
-  --vt-live: #1f5eff;
-  --vt-live-soft: #ecf1ff;
+  /* Surfaces, from furthest back to closest. */
+  --background: #08080a;
+  --foreground: #f4f4f5;
+  --card: #101014;
+  --card-foreground: #f4f4f5;
+  --popover: #131318;
+  --popover-foreground: #f4f4f5;
+  --secondary: #17171d;
+  --secondary-foreground: #f4f4f5;
+  --muted: #16161b;
+  --muted-foreground: #9a9aa5;
+  --accent: #1c1c23;
+  --accent-foreground: #f4f4f5;
+  --border: #23232b;
+  --input: #2a2a33;
+  --ring: #ff8a00;
+
+  /* Vaulted amber. The single accent, used for actions and emphasis. */
+  --vt-accent: #ff8a00;
+  --vt-accent-soft: #ffb055;
+  --vt-accent-dim: rgba(255, 138, 0, 0.14);
+  --primary: #ff8a00;
+  --primary-foreground: #08080a;
+
+  /* Status colours, tuned for a dark surface: legible text on a low-alpha wash. */
+  --vt-positive: #34d399;
+  --vt-positive-soft: rgba(52, 211, 153, 0.13);
+  --vt-warning: #fbbf24;
+  --vt-warning-soft: rgba(251, 191, 36, 0.13);
+  --vt-danger: #f87171;
+  --vt-danger-soft: rgba(248, 113, 113, 0.13);
+  --vt-live: #7aa2ff;
+  --vt-live-soft: rgba(122, 162, 255, 0.14);
+
+  /* Punched out of the padlock in the logo — must match whatever it sits on. */
+  --vt-keyhole: #08080a;
 }
 
 * {
@@ -81,11 +94,6 @@ button {
   cursor: pointer;
 }
 
-::selection {
-  background: #0a0a0b;
-  color: #ffffff;
-}
-
 /* Figures line up in columns and never jitter while a countdown ticks. */
 .vt-numeric {
   font-variant-numeric: tabular-nums;
@@ -106,11 +114,12 @@ button {
 
 /* Faint grid behind the payment card — texture without decoration. */
 .vt-canvas {
-  background-color: #fbfbfc;
+  background-color: var(--background);
   background-image:
-    linear-gradient(to right, rgba(10, 10, 11, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(10, 10, 11, 0.035) 1px, transparent 1px);
-  background-size: 56px 56px;
+    radial-gradient(720px 380px at 50% -10%, rgba(255, 138, 0, 0.08), transparent 70%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 100% 100%, 56px 56px, 56px 56px;
 }
 
 @keyframes vt-pulse {
@@ -143,30 +152,16 @@ button {
    The marketing surface is near-black with a single amber accent, scoped under
    `.vt-dark` so it cannot leak into the app.
 --------------------------------------------------------------------------- */
+/*
+ * Kept as a hook for marketing-only tweaks. The palette now lives on :root, so the product and the
+ * landing page cannot drift apart into two different-looking websites.
+ */
 .vt-dark {
-  color-scheme: dark;
-  --background: #08080a;
-  --foreground: #f4f4f5;
-  --card: #101014;
-  --card-foreground: #f4f4f5;
-  --muted: #16161b;
-  --muted-foreground: #9a9aa5;
-  --border: #23232b;
-  --input: #2a2a33;
-  --ring: #ff8a00;
-
-  /* Vaulted amber. One accent, used sparingly. */
-  --vt-accent: #ff8a00;
-  --vt-accent-soft: #ffb055;
-  --vt-accent-dim: rgba(255, 138, 0, 0.14);
-
-  --vt-keyhole: #08080a;
-
   background: var(--background);
   color: var(--foreground);
 }
 
-.vt-dark ::selection {
+::selection {
   background: var(--vt-accent);
   color: #08080a;
 }

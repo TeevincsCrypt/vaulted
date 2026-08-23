@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import { availabilityLabel, VAULTED_CHAINS, type VaultedChain } from '@/lib/vaulted/registry'
+import { useSession } from '../session-provider'
 import { EscrowFlow } from './escrow-flow'
 import { VaultedLogo, VaultedWordmark } from './logo'
 import { Reveal } from './reveal'
@@ -63,6 +64,7 @@ export function Landing() {
 
 function Nav() {
   const [open, setOpen] = useState(false)
+  const { account } = useSession()
   const links = [
     { href: '#how', label: 'How it works' },
     { href: '#use-cases', label: 'Use cases' },
@@ -91,17 +93,17 @@ function Nav() {
 
         <div className="hidden items-center gap-3 md:flex">
           <Link
-            href="/jobs"
+            href={account ? '/jobs' : '/login'}
             className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            Find work
+            {account ? 'Find work' : 'Sign in'}
           </Link>
           <Link
-            href="/dashboard"
+            href={account ? '/dashboard' : '/login'}
             className="rounded-xl px-4 py-2 text-[13.5px] font-medium text-[#08080a] transition-opacity hover:opacity-90"
             style={{ background: 'var(--vt-accent)' }}
           >
-            Create a Vault
+            {account ? 'Dashboard' : 'Create a Vault'}
           </Link>
         </div>
 

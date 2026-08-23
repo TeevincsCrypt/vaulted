@@ -249,7 +249,7 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
                 disabled={busy}
                 onClick={() => setProtectionPeriod(preset.seconds)}
                 className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
-                  protectionPeriod === preset.seconds ? 'border-foreground bg-foreground text-background' : 'border-border hover:bg-muted'
+                  protectionPeriod === preset.seconds ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]' : 'border-border hover:bg-muted'
                 }`}
               >
                 {preset.label}

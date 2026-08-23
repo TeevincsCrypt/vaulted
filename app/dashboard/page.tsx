@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { requirePage } from '@/lib/vaulted/server/guard'
 import { Workspace } from '@/components/vaulted/pages'
 
 export const metadata: Metadata = {
@@ -6,6 +7,9 @@ export const metadata: Metadata = {
   description: 'Your vaults, their live escrow state, and the actions available to you.',
 }
 
-export default function Page() {
+export const dynamic = 'force-dynamic'
+
+export default async function Page() {
+  await requirePage()
   return <Workspace />
 }

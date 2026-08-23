@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { reputationFor } from '@/lib/vaulted/server/reputation'
-import { handleForAddress } from '@/lib/vaulted/server/usernames'
+import { accountForAddress } from '@/lib/vaulted/server/accounts'
 
 /**
  * GET /api/reputation/{address}
@@ -13,7 +13,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const reputation = await reputationFor(address)
     if (!reputation) return NextResponse.json({ error: 'Not a wallet address.' }, { status: 400 })
-    const handle = await handleForAddress(address)
+    const handle = await accountForAddress(address)
     return NextResponse.json({ reputation, handle: handle?.name ?? null })
   } catch (error) {
     console.error('[vaulted/reputation]', error)

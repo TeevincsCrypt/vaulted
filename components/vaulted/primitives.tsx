@@ -62,10 +62,11 @@ export function Button({
     'focus-visible:ring-offset-2 focus-visible:ring-[var(--ring)]'
   const sizes = size === 'lg' ? 'h-13 px-6 text-[15px]' : 'h-11 px-4 text-sm'
   const variants = {
-    primary: 'bg-foreground text-background hover:opacity-90 active:opacity-80',
-    secondary: 'border border-border bg-card text-foreground hover:bg-muted',
+    primary:
+      'bg-[var(--vt-accent)] text-[#08080a] font-semibold hover:brightness-110 active:brightness-95',
+    secondary: 'border border-border bg-card text-foreground hover:bg-secondary',
     ghost: 'text-muted-foreground hover:bg-muted hover:text-foreground',
-    danger: 'border border-transparent text-[var(--vt-danger)] bg-[var(--vt-danger-soft)] hover:brightness-97',
+    danger: 'border border-transparent text-[var(--vt-danger)] bg-[var(--vt-danger-soft)] hover:brightness-125',
   }[variant]
 
   return (
@@ -85,7 +86,7 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
   return (
     <div
       className={`rounded-2xl border border-border bg-card ${className}`}
-      style={{ boxShadow: '0 1px 2px rgba(10,10,11,0.04), 0 8px 24px -12px rgba(10,10,11,0.10)' }}
+      style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 32px -20px rgba(0,0,0,0.9)' }}
     >
       {children}
     </div>

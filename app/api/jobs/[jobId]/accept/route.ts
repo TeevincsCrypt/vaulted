@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAccount } from '@/lib/vaulted/server/accounts'
 import { ApiError } from '@/lib/vaulted/server/auth'
 import { acceptApplicant, serialiseJob } from '@/lib/vaulted/server/jobs'
 
@@ -11,6 +12,7 @@ import { acceptApplicant, serialiseJob } from '@/lib/vaulted/server/jobs'
 export async function POST(request: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params
   try {
+    await requireAccount()
     const body = await request.json()
     const job = await acceptApplicant({
       jobId,
