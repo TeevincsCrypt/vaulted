@@ -25,7 +25,8 @@
     "check:privy": "tsx scripts/check-privy-token.mjs",
     "e2e:privy": "tsx scripts/e2e-privy-session.mjs",
     "privy:probe": "node scripts/privy-oauth-probe.mjs",
-    "check:payments": "tsx scripts/check-payment-verification.mjs"
+    "check:payments": "tsx scripts/check-payment-verification.mjs",
+    "e2e:payments": "tsx scripts/e2e-payment-requests.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

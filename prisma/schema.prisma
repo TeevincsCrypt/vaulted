@@ -109,8 +109,9 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  addresses     LinkedWallet[]
-  notifications Notification[]
+  addresses       LinkedWallet[]
+  notifications   Notification[]
+  paymentRequests PaymentRequest[]
 
   @@index([ownerAddress])
   @@map("Username")
@@ -233,4 +234,51 @@ model JobApplication {
 
   @@unique([jobId, applicantAddress])
   @@index([applicantAddress])
+}
+
+/// A direct payment request — "pay me $250" — settled by transfer, not by escrow.
+///
+/// Deliberately separate from Invoice. An escrowed invoice needs a deployed contract, a salt, a
+/// details hash and a two-step fund/release dance; this needs a recipient and a network. That is
+/// why it works on Solana and on Base today, while escrow waits on a deployment.
+///
+/// `status` is only ever moved to PAID by the server after reading the transaction back off the
+/// network — see `lib/vaulted/server/verify-payment.ts`. A hash submitted by a payer is a claim
+/// until then, which is why `txHash` and `status` are separate columns.
+model PaymentRequest {
+  /// Public identifier that appears in the payment URL: /pay/{id}
+  id String @id
+
+  creatorId String
+
+  /// Amount in token base units, as a decimal string — never a float.
+  amount   String
+  /// Token symbol at the time of creation, so a later registry change cannot restate the ask.
+  currency String
+  /// Registry key of the network this is payable on (`base`, `solana`).
+  network  String
+
+  description String
+
+  /// PENDING | PAID | EXPIRED | CANCELLED
+  status String @default("PENDING")
+
+  /// Where the money goes. Taken from the creator's recorded wallet for that network, never from
+  /// the request body — a payee address supplied by a browser is a payee address anyone can change.
+  recipientAddress String
+
+  /// The transaction that paid it. Set only once verification confirmed it on chain.
+  txHash String?
+  /// What the chain actually credited, which can exceed the ask.
+  paidAmount String?
+  paidAt     DateTime?
+  expiresAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator Account @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, createdAt])
+  @@index([status])
 }
