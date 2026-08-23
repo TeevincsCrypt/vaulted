@@ -2,10 +2,11 @@
  * End-to-end check of the Privy sign-in path, against the real app and the real database.
  *
  * Privy's own service is the one thing that cannot be reached from here, so it — and only it — is
- * stood in for: a local server speaking Privy's REST shape, and a throwaway P-256 keypair standing
- * in for the app's verification key. Everything downstream is real. The token is a genuine ES256
- * JWT, the route is the deployed route, the rows are written to Postgres, and the session cookie is
- * the one a browser would get.
+ * stood in for: a local server speaking Privy's REST shape, backed by a throwaway P-256 keypair.
+ * Everything downstream is real. The app runs Privy's own SDK against that server, so the token is
+ * a genuine ES256 JWT verified by `PrivyClient.verifyAuthToken`, the verification key is fetched
+ * from app settings the way it is in production, the route is the deployed route, the rows are
+ * written to Postgres, and the session cookie is the one a browser would get.
  *
  * What this pins is the property that matters: the browser supplies a token and nothing else, and
  * the handle and wallet address are taken from what the server reads back with the app secret.
@@ -83,19 +84,58 @@ function mint({ key = privateKey, payload = {} } = {}) {
 // What the mock answers with. Mutated between steps to reproduce Privy's real timing, where the
 // embedded wallet appears a moment after the account does.
 const state = { username: 'E2ETester', name: 'E2E Tester', wallet: null, twitter: true }
-const seen = { authorization: null, appIdHeader: null, calls: 0 }
+const seen = { userLookup: null, appSettings: null, calls: 0 }
 
 const mock = createServer((request, response) => {
   seen.calls++
-  seen.authorization = request.headers.authorization ?? null
-  seen.appIdHeader = request.headers['privy-app-id'] ?? null
+  const credentials = {
+    authorization: request.headers.authorization ?? null,
+    appIdHeader: request.headers['privy-app-id'] ?? null,
+  }
 
   const send = (status, body) => {
     response.writeHead(status, { 'content-type': 'application/json' })
     response.end(JSON.stringify(body))
   }
 
-  if (request.url?.startsWith(`/api/v1/users/${encodeURIComponent(DID)}`)) {
+  // Decoded, because the SDK interpolates ids straight into the path: a Privy DID arrives with its
+  // colons intact rather than percent-encoded, and matching only the encoded form silently 404s.
+  const requestPath = decodeURIComponent((request.url ?? '').split('?')[0])
+
+  // App settings, which is where the SDK reads the token verification key from. Serving it here
+  // rather than injecting the key by environment means the run exercises the same fetch-and-parse
+  // path production uses — the path that used to break.
+  if (requestPath.startsWith(`/api/v1/apps/${APP_ID}`)) {
+    seen.appSettings = credentials
+    return send(200, {
+      id: APP_ID,
+      name: 'Vaulted e2e',
+      verification_key: verificationKey,
+      logo_url: null,
+      theme: 'dark',
+      accent_color: '#ff8a00',
+      wallet_auth: false,
+      email_auth: false,
+      sms_auth: false,
+      google_oauth: false,
+      twitter_oauth: true,
+      discord_oauth: false,
+      github_oauth: false,
+      apple_oauth: false,
+      linkedin_oauth: false,
+      tiktok_oauth: false,
+      disable_plus_emails: false,
+      terms_and_conditions_url: null,
+      privacy_policy_url: null,
+      allowlist_enabled: false,
+      allowlist_config: { error_title: '', error_detail: '', cta_text: '', cta_link: '' },
+      created_at: 1700000000,
+      updated_at: 1700000000,
+    })
+  }
+
+  if (requestPath.startsWith(`/api/v1/users/${DID}`)) {
+    seen.userLookup = credentials
     const linked = []
     if (state.twitter) {
       linked.push({
@@ -125,7 +165,7 @@ const mock = createServer((request, response) => {
     return send(200, { id: DID, created_at: 1700000000, is_guest: false, linked_accounts: linked })
   }
 
-  return send(404, { error: 'unexpected path', path: request.url })
+  return send(404, { error: 'unexpected path', path: requestPath })
 })
 await new Promise((resolve) => mock.listen(MOCK_PORT, '127.0.0.1', resolve))
 
@@ -143,7 +183,7 @@ const app = spawn(path.join(ROOT, 'node_modules', '.bin', 'next'), ['start', '-p
     AUTH_SECRET: 'e2e-auth-secret-that-is-comfortably-long-enough',
     NEXT_PUBLIC_PRIVY_APP_ID: APP_ID,
     PRIVY_APP_SECRET: APP_SECRET,
-    PRIVY_VERIFICATION_KEY: verificationKey,
+    // Deliberately no verification key: the SDK must fetch it from app settings, as in production.
     PRIVY_API_URL: `http://127.0.0.1:${MOCK_PORT}`,
   },
 })
@@ -216,8 +256,10 @@ try {
 
   step(2, 'the app authenticated to Privy with the app secret, not the browser’s word')
   const expected = `Basic ${Buffer.from(`${APP_ID}:${APP_SECRET}`).toString('base64')}`
-  assert(seen.authorization === expected, 'the user lookup carried the app secret')
-  assert(seen.appIdHeader === APP_ID, 'the user lookup carried the app id header')
+  assert(seen.userLookup?.authorization === expected, 'the user lookup carried the app secret')
+  assert(seen.userLookup?.appIdHeader === APP_ID, 'the user lookup carried the app id header')
+  assert(seen.appSettings !== null, 'the verification key was fetched from app settings, not configured')
+  assert(seen.appSettings?.authorization === expected, 'that fetch carried the app secret too')
 
   step(3, 'the wallet appears, and the next sync records it')
   state.wallet = WALLET

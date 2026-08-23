@@ -1,4 +1,4 @@
-import { createPublicKey, verify as verifySignature, type KeyObject } from 'node:crypto'
+import { PrivyClient, type AuthTokenClaims } from '@privy-io/server-auth'
 
 /**
  * Server-side verification of Privy sessions.
@@ -9,14 +9,21 @@ import { createPublicKey, verify as verifySignature, type KeyObject } from 'node
  * session is built from — the account identity and the wallet address — is read back from Privy
  * over an app-secret-authenticated call, never from the request body.
  *
- * The token is an ES256 JWT. It is verified here with node's crypto rather than a JWT library, so
- * there is no third dependency in the trust path: the algorithm is pinned, the issuer and audience
- * are checked, and expiry is enforced.
+ * Verification is Privy's own `PrivyClient.verifyAuthToken`. An earlier version of this file
+ * hand-rolled it — fetching the app's verification key, coercing it to PEM, and checking the ES256
+ * signature with node's crypto — to keep a dependency out of the trust path. That coercion is the
+ * part that broke: the key Privy returns did not survive it, and every sign-in failed at
+ * `createPublicKey` with "not a valid public key" *after* the user had already authenticated with
+ * X and had a wallet created. Guessing at another provider's key encoding is not a thing to
+ * maintain by hand, and the SDK both parses it correctly and fetches it itself, so there is no
+ * verification key left to configure.
+ *
+ * The security properties are unchanged: ES256 pinned, `typ` checked, issuer `privy.io`, audience
+ * equal to this app id, and expiry enforced. Most are the SDK's; the checks it leaves optional are
+ * re-asserted below, so its defaults cannot quietly widen what this app accepts.
  */
 
-const PRIVY_API_URL = process.env.PRIVY_API_URL?.trim() || 'https://auth.privy.io'
 const ISSUER = 'privy.io'
-const ALGORITHM = 'ES256'
 
 export type PrivyIdentity = {
   /** Privy DID, e.g. `did:privy:clxxxxxx`. Stable for the life of the account. */
@@ -97,173 +104,141 @@ function requireCredentials(): { appId: string; appSecret: string } {
   return { appId, appSecret }
 }
 
-async function privyFetch(path: string): Promise<unknown> {
+/**
+ * One client per credential pair, built on first use.
+ *
+ * Not at module load: an unconfigured deployment must still be able to import this file, because
+ * the session route reads `isPrivyConfigured()` from it to report that sign-in is unavailable.
+ * Keyed on the credentials so a change of environment cannot be served by a stale client, and
+ * reused otherwise because the SDK caches the fetched verification key on the instance.
+ */
+let cached: { key: string; client: PrivyClient } | null = null
+
+function client(): PrivyClient {
   const { appId, appSecret } = requireCredentials()
-  const response = await fetch(`${PRIVY_API_URL}${path}`, {
-    headers: {
-      authorization: `Basic ${Buffer.from(`${appId}:${appSecret}`).toString('base64')}`,
-      'privy-app-id': appId,
-      'content-type': 'application/json',
-    },
-    cache: 'no-store',
-  })
+  const apiURL = process.env.PRIVY_API_URL?.trim() || undefined
+  const key = `${appId}:${appSecret}:${apiURL ?? ''}`
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new PrivyError(
-      `Privy rejected the request (${response.status}).${detail ? ` ${detail.slice(0, 200)}` : ''}`,
-      response.status === 404 ? 404 : 502,
-    )
-  }
-  return response.json()
+  if (cached?.key === key) return cached.client
+
+  const created = new PrivyClient(appId, appSecret, apiURL ? { apiURL } : undefined)
+  cached = { key, client: created }
+  return created
 }
-
-let cachedVerificationKey: KeyObject | null = null
 
 /**
- * The app's public verification key, as SPKI PEM.
+ * Overrides the verification key, for tests only.
  *
- * Set PRIVY_VERIFICATION_KEY to avoid a round trip on cold start; otherwise it is read once from
- * the app settings endpoint and cached for the life of the process. Only the public half is ever
- * involved — it cannot mint a token, only check one.
+ * `verifyAuthToken` takes the key as an optional second argument, which lets a suite mint tokens
+ * against a throwaway keypair and check them without reaching Privy. Null restores the normal
+ * behaviour, where the SDK fetches the real key itself.
  */
-async function verificationKey(): Promise<KeyObject> {
-  if (cachedVerificationKey) return cachedVerificationKey
+let verificationKeyOverride: string | null = null
 
-  const fromEnv = process.env.PRIVY_VERIFICATION_KEY?.trim()
-  const pem = fromEnv ? normalisePem(fromEnv) : await fetchVerificationKey()
-
-  let key: KeyObject
-  try {
-    key = createPublicKey(pem)
-  } catch {
-    throw new PrivyError('The Privy verification key is not a valid public key.', 500)
-  }
-  if (key.asymmetricKeyType !== 'ec') {
-    throw new PrivyError('The Privy verification key is not an EC key, so it cannot verify ES256.', 500)
-  }
-
-  cachedVerificationKey = key
-  return key
-}
-
-async function fetchVerificationKey(): Promise<string> {
-  const { appId } = requireCredentials()
-  const body = await privyFetch(`/api/v1/apps/${encodeURIComponent(appId)}`)
-  const value = isRecord(body) ? body.verification_key : undefined
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new PrivyError('Privy did not return a verification key for this app.', 502)
-  }
-  return normalisePem(value)
-}
-
-/** Dashboard copy-paste often arrives with escaped newlines or as a bare base64 body. */
-function normalisePem(value: string): string {
-  const text = value.replace(/\\n/g, '\n').trim()
-  if (text.includes('BEGIN PUBLIC KEY')) return text
-  const body = text.replace(/\s+/g, '').match(/.{1,64}/g)?.join('\n') ?? text
-  return `-----BEGIN PUBLIC KEY-----\n${body}\n-----END PUBLIC KEY-----`
-}
-
-/** Exposed for tests: lets a suite install a known key without reaching the network. */
 export function __setVerificationKeyForTest(pem: string | null): void {
-  cachedVerificationKey = pem ? createPublicKey(normalisePem(pem)) : null
+  verificationKeyOverride = pem
+  cached = null
 }
-
-const fromB64url = (input: string) => Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
 
 /**
  * Verifies a Privy access token and returns who it belongs to.
  *
- * Pins the algorithm rather than reading it from the header: accepting whatever the token declares
- * is how `alg: none` and HMAC-with-the-public-key forgeries get in.
+ * The SDK pins ES256 and checks the issuer, audience and expiry. Everything it rejects becomes a
+ * 401 here: a caller cannot tell a malformed token from a forged one, and should not be able to.
  */
 export async function verifyPrivyToken(rawToken: string): Promise<PrivyIdentity> {
-  const { appId } = requireCredentials()
   const token = rawToken.replace(/^Bearer\s+/i, '').trim()
+  if (!token) throw new PrivyError('No sign-in token supplied.')
 
-  const parts = token.split('.')
-  if (parts.length !== 3) throw new PrivyError('That sign-in token is malformed.')
-  const [encodedHeader, encodedPayload, encodedSignature] = parts
+  // Resolved before the try so a configuration problem keeps its own 503 rather than being
+  // reported as a bad token.
+  const privy = client()
 
-  let header: unknown
-  let payload: unknown
+  let claims
   try {
-    header = JSON.parse(fromB64url(encodedHeader).toString('utf8'))
-    payload = JSON.parse(fromB64url(encodedPayload).toString('utf8'))
-  } catch {
-    throw new PrivyError('That sign-in token is malformed.')
+    claims = await privy.verifyAuthToken(token, verificationKeyOverride ?? undefined)
+  } catch (cause) {
+    throw new PrivyError(
+      `That sign-in token failed verification: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
   }
-  if (!isRecord(header) || !isRecord(payload)) throw new PrivyError('That sign-in token is malformed.')
-  if (header.alg !== ALGORITHM) throw new PrivyError('That sign-in token uses an unexpected algorithm.')
-  if (header.typ !== undefined && header.typ !== 'JWT') throw new PrivyError('That sign-in token is not a JWT.')
 
-  const key = await verificationKey()
-  // ES256 signatures are the raw r‖s pair, not DER — node needs telling.
-  const signatureOk = verifySignature(
-    'sha256',
-    Buffer.from(`${encodedHeader}.${encodedPayload}`),
-    { key, dsaEncoding: 'ieee-p1363' },
-    fromB64url(encodedSignature),
-  )
-  if (!signatureOk) throw new PrivyError('That sign-in token failed verification.')
+  // Belt and braces over the SDK's own checks. These cost nothing, and mean a change in its
+  // defaults cannot quietly widen what this app accepts.
+  if (claims.issuer !== ISSUER) throw new PrivyError('That sign-in token was not issued by Privy.')
+  if (!audienceIncludesThisApp(claims.appId)) {
+    throw new PrivyError('That sign-in token was issued for a different app.')
+  }
+  // jose enforces `exp` only when the claim is present, so a token carrying none would never
+  // expire. Privy always issues one; requiring it means a token that somehow lacks one is refused
+  // rather than being good forever.
+  if (typeof claims.expiration !== 'number' || claims.expiration <= Math.floor(Date.now() / 1000)) {
+    throw new PrivyError('That sign-in session expired.')
+  }
+  if (!claims.userId) throw new PrivyError('That sign-in token has no subject.')
 
-  if (payload.iss !== ISSUER) throw new PrivyError('That sign-in token was not issued by Privy.')
-
-  const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud]
-  if (!audience.includes(appId)) throw new PrivyError('That sign-in token was issued for a different app.')
-
-  const now = Math.floor(Date.now() / 1000)
-  if (typeof payload.exp !== 'number' || payload.exp <= now) throw new PrivyError('That sign-in session expired.')
-  if (typeof payload.nbf === 'number' && payload.nbf > now + 60) throw new PrivyError('That sign-in token is not valid yet.')
-
-  if (typeof payload.sub !== 'string' || !payload.sub) throw new PrivyError('That sign-in token has no subject.')
-
-  return { userId: payload.sub, sessionId: typeof payload.sid === 'string' ? payload.sid : null }
+  return { userId: claims.userId, sessionId: claims.sessionId || null }
 }
 
-/** Reads the account back from Privy. The browser never gets to assert its own handle or address. */
-export async function fetchPrivyUser(userId: string): Promise<PrivyUser> {
-  const body = await privyFetch(`/api/v1/users/${encodeURIComponent(userId)}`)
-  if (!isRecord(body)) throw new PrivyError('Privy returned an unreadable account.', 502)
+/**
+ * `aud` is a single string in every token Privy issues, but the JWT spec allows an array and the
+ * SDK passes whatever was in the claim straight through. Matching the way its own audience check
+ * behaves — membership, not equality — keeps this guard from rejecting a token the SDK accepted.
+ */
+function audienceIncludesThisApp(audience: AuthTokenClaims['appId']): boolean {
+  const appId = privyAppId()
+  if (!appId) return false
+  return Array.isArray(audience) ? audience.includes(appId) : audience === appId
+}
 
-  const linked = Array.isArray(body.linked_accounts) ? body.linked_accounts : []
+/**
+ * Reads the account back from Privy. The browser never gets to assert its own handle or address.
+ *
+ * `getUserById` is rate limited by Privy — acceptable here because it runs only when a session is
+ * established, not on every request.
+ */
+export async function fetchPrivyUser(userId: string): Promise<PrivyUser> {
+  const privy = client()
+
+  let user
+  try {
+    user = await privy.getUserById(userId)
+  } catch (cause) {
+    throw new PrivyError(
+      `Privy could not return that account: ${cause instanceof Error ? cause.message : String(cause)}`,
+      502,
+    )
+  }
 
   let twitter: PrivyTwitterAccount | null = null
   let embeddedWallet: PrivyEmbeddedWallet | null = null
 
-  for (const entry of linked) {
-    if (!isRecord(entry)) continue
-
-    if (entry.type === 'twitter_oauth' && !twitter) {
-      const subject = typeof entry.subject === 'string' ? entry.subject : null
-      const username = typeof entry.username === 'string' ? entry.username : null
-      if (subject && username) {
-        twitter = {
-          subject,
-          username,
-          name: typeof entry.name === 'string' ? entry.name : null,
-          profilePictureUrl: typeof entry.profile_picture_url === 'string' ? entry.profile_picture_url : null,
-        }
+  for (const entry of user.linkedAccounts ?? []) {
+    if (entry.type === 'twitter_oauth' && !twitter && entry.subject && entry.username) {
+      twitter = {
+        subject: entry.subject,
+        username: entry.username,
+        name: entry.name ?? null,
+        profilePictureUrl: entry.profilePictureUrl ?? null,
       }
     }
 
-    if (entry.type === 'wallet' && !embeddedWallet) {
-      // `privy` is the wallet client of the enclave-backed wallet. Anything else is an external
-      // wallet the user connected, which this deployment does not use.
-      const address = typeof entry.address === 'string' ? entry.address : null
-      const walletClientType = typeof entry.wallet_client_type === 'string' ? entry.wallet_client_type : ''
-      const chainType = typeof entry.chain_type === 'string' ? entry.chain_type : ''
-      if (address && walletClientType === 'privy' && chainType === 'ethereum') {
-        embeddedWallet = { address, chainType, walletClientType }
+    // `privy` is the wallet client of the enclave-backed wallet. Anything else is an external
+    // wallet the user connected, which this deployment does not use.
+    if (
+      entry.type === 'wallet' &&
+      !embeddedWallet &&
+      entry.address &&
+      entry.walletClientType === 'privy' &&
+      entry.chainType === 'ethereum'
+    ) {
+      embeddedWallet = {
+        address: entry.address,
+        chainType: entry.chainType,
+        walletClientType: entry.walletClientType,
       }
     }
   }
 
-  const id = typeof body.id === 'string' ? body.id : userId
-  return { id, twitter, embeddedWallet }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+  return { id: user.id || userId, twitter, embeddedWallet }
 }

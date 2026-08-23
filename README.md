@@ -229,9 +229,12 @@ wallet.
 
 1. Privy authenticates the user with X and returns a short-lived ES256 access token.
 2. The browser posts that token to `POST /api/auth/privy`.
-3. The server verifies it against the app's public verification key with the algorithm pinned and
-   the issuer, audience and expiry checked — see `lib/vaulted/server/privy.ts`, and
-   `npm run check:privy` for the suite that pins forgery rejection.
+3. The server verifies it with Privy's own `PrivyClient.verifyAuthToken` from
+   `@privy-io/server-auth`: ES256 pinned, issuer `privy.io`, audience equal to this app id, expiry
+   enforced. The verification key is fetched from app settings by the SDK and cached — there is no
+   key to configure. `lib/vaulted/server/privy.ts` re-asserts the checks the SDK leaves optional
+   (notably a missing `exp`, which jose ignores rather than rejects), and `npm run check:privy`
+   pins the whole set against a throwaway keypair.
 4. The handle, display name and **wallet address** are then read back from Privy over an
    app-secret-authenticated call. Nothing in the request body is trusted: a caller cannot pick
    their own handle or point their handle at an address they do not control.
@@ -276,7 +279,7 @@ Three deployment details that are easy to get wrong:
 
 - **`NEXT_PUBLIC_PRIVY_APP_ID` must be set at build time**, not only at run time — Next substitutes
   `NEXT_PUBLIC_*` into the browser bundle while building. `PRIVY_APP_SECRET`, `AUTH_SECRET` and
-  `PRIVY_VERIFICATION_KEY` are read on the server at run time, so those can be set later.
+  are read on the server at run time, so those can be set later.
 - **A Privy app id is exactly 25 characters.** A truncated one is caught at startup and reported in
   the UI rather than being handed to the SDK, which would otherwise throw while the provider mounts
   and fail the build on an unrelated prerendered page.
