@@ -10,7 +10,7 @@ import { EscrowState, type DisplayStatus } from '@/lib/vaulted/status'
 import { EscrowActions } from './escrow-actions'
 import { Button, Card, Eyebrow, Notice, Skeleton, StatusPill } from './primitives'
 import { useSession } from './session-provider'
-import { AppShell } from './shell'
+import { AppShell, EscrowUnavailable } from './shell'
 import { SignInButton } from './wallet'
 
 /**
@@ -104,7 +104,10 @@ export function Inbox() {
         </div>
       ) : !config ? (
         <div className="mt-8">
-          <Notice tone="warn">No network has a deployed escrow, so there is nothing to read yet.</Notice>
+          <EscrowUnavailable
+            what="This list"
+            message="Nobody can raise an escrow for you to pay until the contract is deployed, so there is nothing to list here."
+          />
         </div>
       ) : rows === null ? (
         <div className="mt-8 flex flex-col gap-3">

@@ -1,7 +1,7 @@
 import type { Chain } from 'viem'
 import { VAULTED_DEPLOYMENTS, type VaultedDeployment } from './generated/deployments'
 import { findChain } from './chains'
-import { defaultChain, getChainByEvmId } from './registry'
+import { defaultChain, defaultPaymentChain, getChainByEvmId } from './registry'
 
 export type VaultedConfig = {
   chain: Chain
@@ -126,6 +126,44 @@ export function getVaultedConfig(chainIdOverride?: number): VaultedConfig | Vaul
     defaultProtectionPeriod: deployment?.defaultProtectionPeriod ?? 24 * 60 * 60,
     rpcUrl: env.rpcUrl || registered?.rpcUrl || null,
     deployment: deployment ?? null,
+  }
+}
+
+/**
+ * What a *payment* needs, which is much less than what an escrow needs.
+ *
+ * A balance, a receive address and a direct transfer need a network with a token. They do not need
+ * VaultedEscrow deployed anywhere. Gating them on the escrow config is what made a wallet with USDC
+ * in it report "no token configured to show a balance for" — the token was configured, the escrow
+ * was not, and the page was asking the wrong question.
+ */
+export type PaymentConfig = {
+  chain: Chain
+  chainId: number
+  chainKey: string
+  chainName: string
+  token: { address: `0x${string}`; symbol: string; decimals: number }
+  rpcUrl: string | null
+}
+
+export function getPaymentConfig(): PaymentConfig | null {
+  // The escrow network when there is one, so a deployment that can do both keeps a single answer;
+  // otherwise the default payment network, which is Base Mainnet in production.
+  const chain = defaultChain() ?? defaultPaymentChain()
+  if (!chain || chain.family !== 'evm' || !chain.viemChain || !chain.token) return null
+  if (!isAddress(chain.token.address)) return null
+
+  return {
+    chain: chain.viemChain,
+    chainId: chain.viemChain.id,
+    chainKey: chain.key,
+    chainName: chain.name,
+    token: {
+      address: chain.token.address,
+      symbol: chain.token.symbol,
+      decimals: chain.token.decimals,
+    },
+    rpcUrl: env.rpcUrl || chain.rpcUrl || null,
   }
 }
 

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { ArrowUpFromLine, Coins, ShieldCheck } from 'lucide-react'
 import { erc20Abi, isAddress, getAddress } from 'viem'
 import { useAccount, useBalance } from 'wagmi'
-import { readableError, useTokenBalance, useTransaction, useVaultedConfig } from '@/lib/vaulted/client'
+import { readableError, usePaymentConfig, useTokenBalance, useTransaction } from '@/lib/vaulted/client'
 import { formatAmount, formatAmountExact, parseAmount, shortAddress } from '@/lib/vaulted/format'
 import { useVaultedAuth } from './auth-provider'
 import {
@@ -40,7 +40,7 @@ import { NetworkGuard, SignInButton } from './wallet'
  */
 export function Funds() {
   const { address: connected } = useAccount()
-  const config = useVaultedConfig()
+  const config = usePaymentConfig()
   const { account } = useSession()
   const { walletPending } = useVaultedAuth()
 
@@ -72,8 +72,9 @@ export function Funds() {
         </div>
       ) : !config ? (
         <div className="mt-8">
-          <Notice tone="warn">
-            No network has a deployed escrow, so there is no token configured to show a balance for.
+          <Notice tone="warn" title="No payment network configured">
+            This deployment has no network with a token, so there is no balance to read. Escrow is a
+            separate matter — a balance only needs a token and an RPC.
           </Notice>
         </div>
       ) : (
@@ -90,7 +91,7 @@ export function Funds() {
 }
 
 function Balances({ address }: { address: `0x${string}` }) {
-  const config = useVaultedConfig()
+  const config = usePaymentConfig()
   const token = useTokenBalance(address)
   const native = useBalance({ address, chainId: config?.chainId })
 
@@ -115,7 +116,7 @@ function Balances({ address }: { address: `0x${string}` }) {
             )}
           </div>
           <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-            What Vaulted escrows are denominated in, on {config?.chain.name}.
+            What Vaulted payments are denominated in, on {config?.chainName}.
           </p>
         </div>
 
@@ -147,7 +148,7 @@ function Balances({ address }: { address: `0x${string}` }) {
       {(token.isError || native.isError) && (
         <div className="mt-4">
           <Notice tone="warn">
-            A balance could not be read from {config?.chain.name} just now. Nothing is estimated in
+            A balance could not be read from {config?.chainName} just now. Nothing is estimated in
             its place.
           </Notice>
         </div>
@@ -163,7 +164,7 @@ function Balances({ address }: { address: `0x${string}` }) {
 }
 
 function Receive({ address }: { address: `0x${string}` }) {
-  const config = useVaultedConfig()
+  const config = usePaymentConfig()
 
   return (
     <Card className="p-7">
@@ -171,7 +172,7 @@ function Receive({ address }: { address: `0x${string}` }) {
       <h2 className="vt-display mt-2 text-lg">Send to this address</h2>
       <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
         There is no deposit to authorise: the wallet is yours and anything sent to this address on{' '}
-        {config?.chain.name} arrives directly, whether from an exchange, another wallet, or a client
+        {config?.chainName} arrives directly, whether from an exchange, another wallet, or a client
         paying you.
       </p>
 
@@ -185,7 +186,7 @@ function Receive({ address }: { address: `0x${string}` }) {
       <div className="mt-4">
         <Notice tone="warn">
           Send only {config?.token.symbol} or {config?.chain.nativeCurrency.symbol} on{' '}
-          {config?.chain.name}. Tokens sent on a different network reach a different chain&rsquo;s
+          {config?.chainName}. Tokens sent on a different network reach a different chain&rsquo;s
           copy of this address, and Vaulted cannot recover them.
         </Notice>
       </div>
@@ -194,7 +195,7 @@ function Receive({ address }: { address: `0x${string}` }) {
 }
 
 function Withdraw({ address }: { address: `0x${string}` }) {
-  const config = useVaultedConfig()
+  const config = usePaymentConfig()
   const { address: signer } = useAccount()
   const balance = useTokenBalance(address)
   const tx = useTransaction()

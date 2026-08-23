@@ -12,7 +12,7 @@ import { DashboardOverview } from './dashboard-overview'
 import { PayExperience } from './pay-experience'
 import { RequestDetail } from './request-detail'
 import { RequestsList } from './requests-list'
-import { AppShell, NotConfigured } from './shell'
+import { AppShell, EscrowUnavailable, NotConfigured } from './shell'
 
 /**
  * Thin client wrappers. Config resolution lives on the client so the viem `Chain` object never has
@@ -31,7 +31,16 @@ export function Workspace() {
   // meaningful once more than one chain is live, so this is display state for now.
   const [activeChainKey, setActiveChainKey] = useState<string | null>(defaultChain()?.key ?? null)
 
-  if (!config) return <NotConfigured message={unavailableMessage()} />
+  if (!config) {
+    return (
+      <AppShell>
+        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Your vaults</h1>
+        <div className="mt-8">
+          <EscrowUnavailable what="The escrow dashboard" message={unavailableMessage()} />
+        </div>
+      </AppShell>
+    )
+  }
 
   return (
     <AppShell>
@@ -69,7 +78,13 @@ export function Workspace() {
 
 export function RequestPage({ invoice }: { invoice: SerialisedInvoice }) {
   const config = useVaultedConfig()
-  if (!config) return <NotConfigured message={unavailableMessage()} />
+  if (!config) {
+    return (
+      <AppShell>
+        <EscrowUnavailable what="This escrow" message={unavailableMessage()} />
+      </AppShell>
+    )
+  }
   return (
     <AppShell>
       <RequestDetail invoice={invoice} config={config} />

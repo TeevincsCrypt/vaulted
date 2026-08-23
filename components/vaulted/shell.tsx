@@ -3,9 +3,10 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, type ReactNode } from 'react'
-import { LogOut, Menu, X } from 'lucide-react'
+import { ArrowRight, LogOut, Menu, X } from 'lucide-react'
 import { useVaultedConfig } from '@/lib/vaulted/client'
 import { VaultedWordmark } from './marketing/logo'
+import { Card, Eyebrow } from './primitives'
 import { NotificationBell } from './notifications'
 import { useVaultedAuth } from './auth-provider'
 import { useSession } from './session-provider'
@@ -162,6 +163,34 @@ function AccountChip() {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Escrow is unavailable, but the rest of the product is not.
+ *
+ * Rendered inside the shell rather than as a full-page wall: escrow needing a contract says nothing
+ * about payment links, which settle by transfer and work today. A page that blacks out entirely
+ * hides the thing the user can actually do.
+ */
+export function EscrowUnavailable({ what, message }: { what: string; message: string }) {
+  return (
+    <Card className="p-8">
+      <Eyebrow>Not available yet</Eyebrow>
+      <h2 className="vt-display mt-2 text-xl">{what} needs the escrow contract</h2>
+      <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-muted-foreground">{message}</p>
+      <p className="mt-4 max-w-xl text-[14px] leading-relaxed text-muted-foreground">
+        Getting paid does not have to wait for it. A payment link settles by direct transfer on Base
+        or Solana, with the transaction verified against the network before anything is marked paid.
+      </p>
+      <Link
+        href="/payment-requests"
+        className="mt-6 inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[15px] font-semibold text-[#08080a] transition-transform hover:-translate-y-0.5"
+        style={{ background: 'var(--vt-accent)' }}
+      >
+        Request a payment instead <ArrowRight size={16} />
+      </Link>
+    </Card>
   )
 }
 

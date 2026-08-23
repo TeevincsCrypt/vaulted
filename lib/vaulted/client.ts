@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { erc20Abi, type Address } from 'viem'
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
 import { VAULTED_ESCROW_ABI } from './generated/abi'
-import { getVaultedConfig, isConfigured, type VaultedConfig } from './config'
+import {
+  getPaymentConfig,
+  getVaultedConfig,
+  isConfigured,
+  type PaymentConfig,
+  type VaultedConfig,
+} from './config'
 import { displayStatus, EscrowState, type DisplayStatus } from './status'
 
 /**
@@ -20,6 +26,17 @@ export function useVaultedConfig(): VaultedConfig | null {
     const config = getVaultedConfig()
     return isConfigured(config) ? config : null
   }, [])
+}
+
+/**
+ * The network balances and direct transfers use.
+ *
+ * Separate from {@link useVaultedConfig} on purpose: that one answers "where can an escrow live",
+ * this one answers "where is the money". A page that only reads a balance must ask this, or a
+ * deployment with a token but no escrow contract wrongly reports having no token.
+ */
+export function usePaymentConfig(): PaymentConfig | null {
+  return useMemo(() => getPaymentConfig(), [])
 }
 
 export type EscrowSnapshot = {
@@ -106,7 +123,7 @@ export function useTokenAllowance(owner: Address | undefined) {
 }
 
 export function useTokenBalance(owner: Address | undefined) {
-  const config = useVaultedConfig()
+  const config = usePaymentConfig()
   return useReadContract({
     address: config?.token.address,
     abi: erc20Abi,

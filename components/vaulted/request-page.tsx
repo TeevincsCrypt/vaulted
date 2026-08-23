@@ -7,7 +7,7 @@ import { useVaultedConfig } from '@/lib/vaulted/client'
 import { formatDuration } from '@/lib/vaulted/format'
 import { CreateRequest } from './create-request'
 import { Card, Eyebrow } from './primitives'
-import { AppShell, NotConfigured } from './shell'
+import { AppShell, EscrowUnavailable } from './shell'
 import { getVaultedConfig, isConfigured } from '@/lib/vaulted/config'
 import { useSession } from './session-provider'
 
@@ -51,7 +51,17 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
 
   if (!config) {
     const resolved = getVaultedConfig()
-    return <NotConfigured message={isConfigured(resolved) ? '' : resolved.message} />
+    return (
+      <AppShell>
+        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Request a payment</h1>
+        <div className="mt-8">
+          <EscrowUnavailable
+            what="An escrowed request"
+            message={isConfigured(resolved) ? '' : resolved.message}
+          />
+        </div>
+      </AppShell>
+    )
   }
 
   return (
