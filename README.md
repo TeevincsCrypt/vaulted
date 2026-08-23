@@ -260,8 +260,11 @@ App."
 That URL is built by Privy's backend, so it is not in this repo or in the SDK. Ask Privy for it:
 
 ```bash
-npm run privy:probe -- --redirect-to https://your-domain
+node scripts/privy-oauth-probe.mjs --redirect-to https://your-domain
+# or: npm run privy:probe -- --redirect-to https://your-domain
 ```
+
+It runs on plain node, so it works in a fresh clone before `npm install` finishes and in any shell.
 
 It makes the same `oauth/init` call the browser makes and prints the authorize URL's parameters —
 `redirect_uri` (register that exact string with X), `client_id` (confirm it is your X app) and

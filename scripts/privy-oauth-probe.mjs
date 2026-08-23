@@ -21,6 +21,8 @@
  * origin is missing from Privy's allowed domains, which is a different failure with the same
  * symptom.
  *
+ * Runs on plain node — no build step, no dev dependencies, nothing to install.
+ *
  * Run: npm run privy:probe -- --redirect-to https://your-domain
  */
 import { createHash, randomBytes } from 'node:crypto'
@@ -28,14 +30,25 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 const ROOT = path.join(import.meta.dirname, '..')
+
+/**
+ * The only variables this script may read.
+ *
+ * An allowlist rather than a filter on the output: the app id and origin are public, and the
+ * secrets in the same file — PRIVY_APP_SECRET, AUTH_SECRET, DATABASE_URL — are never loaded into
+ * this process at all. A script that never holds a secret cannot leak one, however it is edited or
+ * however it fails.
+ */
+const READABLE = new Set(['NEXT_PUBLIC_PRIVY_APP_ID', 'NEXT_PUBLIC_APP_URL', 'PRIVY_API_URL'])
+
 for (const file of ['.env.local', '.env']) {
   const full = path.join(ROOT, file)
   if (!existsSync(full)) continue
   for (const line of readFileSync(full, 'utf8').split('\n')) {
     const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (match && process.env[match[1]] === undefined) {
-      process.env[match[1]] = match[2].trim().replace(/^["']|["']$/g, '')
-    }
+    if (!match || !READABLE.has(match[1])) continue
+    if (process.env[match[1]] !== undefined) continue
+    process.env[match[1]] = match[2].trim().replace(/^["']|["']$/g, '')
   }
 }
 
@@ -137,9 +150,14 @@ if (!url) {
 const parsed = new URL(url)
 const redirectUri = parsed.searchParams.get('redirect_uri')
 
-console.log(`authorize endpoint  ${parsed.origin}${parsed.pathname}\n`)
+// The full URL as Privy built it. Nothing in it is secret: the PKCE *verifier* is the secret half
+// and never leaves this process, while the challenge and state in the URL are public by design.
+console.log('authorize URL X is sent to:\n')
+console.log(`  ${url}\n`)
+
+console.log(`endpoint  ${parsed.origin}${parsed.pathname}\n`)
 for (const [key, value] of parsed.searchParams) {
-  // The challenge and state are per-request noise; everything else is configuration.
+  // Per-request noise; everything else is configuration you can act on.
   if (key === 'code_challenge' || key === 'state') continue
   console.log(`  ${key.padEnd(22)}${value}`)
 }
