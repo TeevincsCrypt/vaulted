@@ -45,6 +45,7 @@ const APP_SECRET = 'e2e-app-secret'
 const DID = 'did:privy:e2e-vaulted'
 const SUBJECT = '4815162342'
 const WALLET = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
+const SOL_WALLET = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
 
 let failures = 0
 const step = (n, s) => console.log(`\n[${n}] ${s}`)
@@ -83,7 +84,7 @@ function mint({ key = privateKey, payload = {} } = {}) {
 
 // What the mock answers with. Mutated between steps to reproduce Privy's real timing, where the
 // embedded wallet appears a moment after the account does.
-const state = { username: 'E2ETester', name: 'E2E Tester', wallet: null, twitter: true }
+const state = { username: 'E2ETester', name: 'E2E Tester', wallet: null, solanaWallet: null, twitter: true }
 const seen = { userLookup: null, appSettings: null, calls: 0 }
 
 const mock = createServer((request, response) => {
@@ -155,6 +156,19 @@ const mock = createServer((request, response) => {
         id: 'wallet-1',
         address: state.wallet,
         chain_type: 'ethereum',
+        wallet_client_type: 'privy',
+        connector_type: 'embedded',
+        verified_at: 1700000000,
+        first_verified_at: 1700000000,
+        latest_verified_at: 1700000000,
+      })
+    }
+    if (state.solanaWallet) {
+      linked.push({
+        type: 'wallet',
+        id: 'wallet-2',
+        address: state.solanaWallet,
+        chain_type: 'solana',
         wallet_client_type: 'privy',
         connector_type: 'embedded',
         verified_at: 1700000000,
@@ -239,7 +253,7 @@ try {
   await waitForApp()
 
   // Rows left by a previous run would make the assertions below meaningless.
-  await prisma.linkedWallet.deleteMany({ where: { address: WALLET } })
+  await prisma.linkedWallet.deleteMany({ where: { address: { in: [WALLET, SOL_WALLET] } } })
   await prisma.account.deleteMany({ where: { OR: [{ privyUserId: DID }, { twitterId: SUBJECT }] } })
 
   step(1, 'a valid token, before Privy has finished creating the wallet')
@@ -261,8 +275,9 @@ try {
   assert(seen.appSettings !== null, 'the verification key was fetched from app settings, not configured')
   assert(seen.appSettings?.authorization === expected, 'that fetch carried the app secret too')
 
-  step(3, 'the wallet appears, and the next sync records it')
+  step(3, 'both wallets appear, and the next sync records them')
   state.wallet = WALLET
+  state.solanaWallet = SOL_WALLET
   response = await post(mint())
   body = await response.json()
   assert(response.status === 200, `sign-in accepted again (${response.status})`)
@@ -272,9 +287,23 @@ try {
   const stored = await prisma.account.findUnique({ where: { privyUserId: DID }, include: { addresses: true } })
   assert(stored?.ownerAddress === WALLET, 'Account.ownerAddress written')
   assert(stored?.twitterId === SUBJECT, 'the immutable X subject is stored')
-  assert(stored?.addresses.length === 1, `exactly one wallet row, not one per chain (${stored?.addresses.length})`)
-  assert(stored?.addresses[0]?.provenance === 'PRIVY_EMBEDDED', 'the wallet row is labelled PRIVY_EMBEDDED')
-  assert(stored?.addresses[0]?.proofSignature === null, 'no signature is invented for an attested wallet')
+  assert(stored?.addresses.length === 2, `one row per rail, not one per network (${stored?.addresses.length})`)
+  assert(
+    stored?.addresses.every((row) => row.provenance === 'PRIVY_EMBEDDED'),
+    'every wallet row is labelled PRIVY_EMBEDDED',
+  )
+  assert(
+    stored?.addresses.every((row) => row.proofSignature === null),
+    'no signature is invented for an attested wallet',
+  )
+
+  // The two rails must never be filed against each other: an EVM address recorded under Solana
+  // would be handed out as a Solana payee and the money would go nowhere.
+  const evmRow = stored?.addresses.find((row) => row.address === WALLET)
+  const solRow = stored?.addresses.find((row) => row.address === SOL_WALLET)
+  assert(evmRow !== undefined && evmRow.chainKey !== 'solana', `the EVM wallet is filed under ${evmRow?.chainKey}`)
+  assert(solRow?.chainKey === 'solana', `the Solana wallet is filed under ${solRow?.chainKey}`)
+  assert(stored?.ownerAddress === WALLET, 'the primary address stays the EVM one — escrow lives there')
 
   step(4, 'the session cookie identifies the account')
   response = await fetch(`${APP}/api/auth/session`, { headers: { cookie } })
@@ -292,19 +321,23 @@ try {
   assert(body.account?.id === idBefore, 'the same account row, keyed on the X subject')
   assert((await prisma.account.count({ where: { privyUserId: DID } })) === 1, 'no duplicate account was created')
 
-  step(6, 'a handle resolves to the assigned wallet')
-  // The wallet is filed under one chain; the other EVM networks reach it through the same-family
-  // fallback, because an EVM account address is the same address everywhere.
-  for (const chainKey of ['base-sepolia', 'base']) {
-    response = await fetch(`${APP}/api/accounts/resolve?handle=e2erenamed&chainKey=${chainKey}`)
-    const resolved = await response.json()
-    assert(response.ok, `resolve on ${chainKey} responded ${response.status}`)
-    assert(resolved.address === WALLET, `@e2erenamed -> ${resolved.address} on ${chainKey}`)
-  }
-  // A Solana payment must never be sent an EVM address.
-  response = await fetch(`${APP}/api/accounts/resolve?handle=e2erenamed&chainKey=solana-devnet`)
-  const svm = await response.json()
-  assert(svm.found === true && svm.address === null, `no address is offered for a Solana payment (${svm.address})`)
+  step(6, 'each rail resolves to its own wallet, and never to the other one')
+  response = await fetch(`${APP}/api/accounts/resolve?handle=e2erenamed&chainKey=base`)
+  const evmResolved = await response.json()
+  assert(response.ok, `resolve on base responded ${response.status}`)
+  assert(evmResolved.address === WALLET, `@e2erenamed -> ${evmResolved.address} on Base`)
+
+  response = await fetch(`${APP}/api/accounts/resolve?handle=e2erenamed&chainKey=solana`)
+  const svmResolved = await response.json()
+  assert(response.ok, `resolve on solana responded ${response.status}`)
+  assert(svmResolved.address === SOL_WALLET, `@e2erenamed -> ${svmResolved.address} on Solana`)
+  // The whole point of keeping the rails apart: paying the EVM address on Solana burns the money.
+  assert(svmResolved.address !== WALLET, 'the Solana payee is never the EVM address')
+
+  // A development network is absent from a production build, so it cannot be routed to at all.
+  response = await fetch(`${APP}/api/accounts/resolve?handle=e2erenamed&chainKey=base-sepolia`)
+  const dev = await response.json()
+  assert(dev.address === null, `no address is offered for a network this build does not expose (${dev.address})`)
 
   step(7, 'forged and unusable tokens are refused, and change nothing')
   const before = await prisma.account.findUnique({ where: { privyUserId: DID } })

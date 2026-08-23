@@ -57,10 +57,18 @@ for (const [name, request] of [
   )
 }
 
-console.log('\n[3] Solana adapter refuses every operation')
-const solanaChain = getChain('solana-devnet')
-check(solanaChain !== null, 'solana-devnet is in the registry')
-check(solanaChain?.availability === 'coming-soon', `availability is "${solanaChain?.availability}", not live`)
+console.log('\n[3] Solana takes payments and still refuses every escrow operation')
+// The production network, because that is the one a build actually exposes. Solana can settle a
+// payment link today and cannot hold an escrow at all — the point of separating the two
+// capabilities is that the second must stay false while the first is true.
+const solanaChain = getChain('solana')
+check(solanaChain !== null, 'solana is in the registry')
+check(solanaChain?.capabilities.transfer === true, 'payments are supported')
+check(solanaChain?.capabilities.escrow === false, 'escrow is not supported — no Vaulted program exists')
+check(
+  solanaChain?.availability === 'payments-only',
+  `availability is "${solanaChain?.availability}", which is neither live nor a denial of payments`,
+)
 
 const solana = new SolanaEscrowAdapter(solanaChain)
 for (const [name, run] of [

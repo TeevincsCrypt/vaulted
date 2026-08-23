@@ -55,8 +55,11 @@ const privyConfig: PrivyClientConfig = {
     loginMessage: 'Your X handle becomes your Vaulted username.',
   },
   embeddedWallets: {
-    // Every account gets a wallet, so a signed-in user is never left unable to be paid.
+    // Every account gets a wallet on both rails, so a signed-in user can be paid on either without
+    // a second onboarding. wagmi only ever sees the Ethereum one; the Solana address is an address
+    // to receive at, and Vaulted has no Solana program to sign against yet.
     ethereum: { createOnLogin: 'all-users' },
+    solana: { createOnLogin: 'all-users' },
   },
   supportedChains: chains,
   ...(active ? { defaultChain: active } : {}),

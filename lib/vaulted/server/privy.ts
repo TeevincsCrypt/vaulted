@@ -47,8 +47,10 @@ export type PrivyEmbeddedWallet = {
 export type PrivyUser = {
   id: string
   twitter: PrivyTwitterAccount | null
-  /** The wallet Privy provisioned for this account, if it has one yet. */
+  /** The EVM wallet Privy provisioned for this account, if it has one yet. */
   embeddedWallet: PrivyEmbeddedWallet | null
+  /** The Solana wallet, kept separate: the two are different keys on different curves. */
+  solanaWallet: PrivyEmbeddedWallet | null
 }
 
 export class PrivyError extends Error {
@@ -212,6 +214,7 @@ export async function fetchPrivyUser(userId: string): Promise<PrivyUser> {
 
   let twitter: PrivyTwitterAccount | null = null
   let embeddedWallet: PrivyEmbeddedWallet | null = null
+  let solanaWallet: PrivyEmbeddedWallet | null = null
 
   for (const entry of user.linkedAccounts ?? []) {
     if (entry.type === 'twitter_oauth' && !twitter && entry.subject && entry.username) {
@@ -224,21 +227,18 @@ export async function fetchPrivyUser(userId: string): Promise<PrivyUser> {
     }
 
     // `privy` is the wallet client of the enclave-backed wallet. Anything else is an external
-    // wallet the user connected, which this deployment does not use.
-    if (
-      entry.type === 'wallet' &&
-      !embeddedWallet &&
-      entry.address &&
-      entry.walletClientType === 'privy' &&
-      entry.chainType === 'ethereum'
-    ) {
-      embeddedWallet = {
+    // wallet the user connected, which this deployment does not use. The two chain types are kept
+    // apart deliberately: a Solana address is not an EVM address and must never be filed as one.
+    if (entry.type === 'wallet' && entry.address && entry.walletClientType === 'privy') {
+      const wallet = {
         address: entry.address,
         chainType: entry.chainType,
         walletClientType: entry.walletClientType,
       }
+      if (entry.chainType === 'ethereum' && !embeddedWallet) embeddedWallet = wallet
+      if (entry.chainType === 'solana' && !solanaWallet) solanaWallet = wallet
     }
   }
 
-  return { id: user.id || userId, twitter, embeddedWallet }
+  return { id: user.id || userId, twitter, embeddedWallet, solanaWallet }
 }

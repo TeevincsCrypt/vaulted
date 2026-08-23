@@ -1,6 +1,7 @@
 import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
 import { defaultChain, getChain, VAULTED_CHAINS } from '../registry'
+import { isSolanaAddress } from '../solana'
 import { ApiError } from './auth'
 import type { PrivyUser } from './privy'
 import { readSession } from './session'
@@ -88,9 +89,18 @@ export async function upsertPrivyAccount(user: PrivyUser) {
     account = await prisma.account.create({ data: { ...profile, name: handle } })
   }
 
+  let attached = false
   if (user.embeddedWallet) {
     await recordEmbeddedWallet(account.id, user.embeddedWallet.address)
-    // Re-read: the row above was fetched before the wallet was attached, and returning it would
+    attached = true
+  }
+  if (user.solanaWallet) {
+    await recordSolanaWallet(account.id, user.solanaWallet.address)
+    attached = true
+  }
+
+  if (attached) {
+    // Re-read: the row above was fetched before the wallets were attached, and returning it would
     // report a null address for an account that now has one.
     return prisma.account.findUniqueOrThrow({ where: { id: account.id } })
   }
@@ -132,6 +142,35 @@ async function recordEmbeddedWallet(accountId: string, rawAddress: string) {
       data: { ownerAddress: address, ownerChainKey: chainKey, claimSignature: null },
     }),
   ])
+}
+
+/**
+ * Records the account's Solana address.
+ *
+ * Filed under the production Solana network and never against an EVM key, so `resolvePayeeAddress`
+ * — which refuses to cross chain families — hands out the right address for the right rail. The
+ * primary address is left alone: it is the EVM one, and escrow lives there.
+ */
+async function recordSolanaWallet(accountId: string, address: string) {
+  if (!isSolanaAddress(address)) {
+    throw new ApiError('Privy returned an address that is not a valid Solana address.', 502)
+  }
+
+  const chainKey = VAULTED_CHAINS.find((chain) => chain.family === 'svm' && chain.tier === 'production')?.key
+  if (!chainKey) return
+
+  const conflicting = await prisma.linkedWallet.findMany({
+    where: { address, usernameId: { not: accountId } },
+  })
+  if (conflicting.length > 0) {
+    throw new ApiError('That Solana wallet is already recorded against another Vaulted account.', 409)
+  }
+
+  await prisma.linkedWallet.upsert({
+    where: { usernameId_chainKey: { usernameId: accountId, chainKey } },
+    create: { usernameId: accountId, chainKey, address, provenance: 'PRIVY_EMBEDDED' },
+    update: { address, provenance: 'PRIVY_EMBEDDED', proofSignature: null, verifiedAt: new Date() },
+  })
 }
 
 export async function currentAccount(): Promise<SessionAccount | null> {

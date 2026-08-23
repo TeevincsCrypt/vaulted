@@ -21,10 +21,11 @@
     "seed:local": "tsx scripts/seed-local-chain.mjs",
     "typecheck": "tsc --noEmit",
     "check:adapters": "tsx scripts/check-adapters.mjs",
-    "check": "npm run typecheck && npm run check:escrow-id && npm run check:adapters && npm run check:privy",
+    "check": "npm run typecheck && npm run check:escrow-id && npm run check:adapters && npm run check:privy && npm run check:payments",
     "check:privy": "tsx scripts/check-privy-token.mjs",
     "e2e:privy": "tsx scripts/e2e-privy-session.mjs",
-    "privy:probe": "node scripts/privy-oauth-probe.mjs"
+    "privy:probe": "node scripts/privy-oauth-probe.mjs",
+    "check:payments": "tsx scripts/check-payment-verification.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

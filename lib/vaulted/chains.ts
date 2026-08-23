@@ -1,12 +1,18 @@
 import type { Chain } from 'viem'
-import { base, baseSepolia, bsc, bscTestnet, hardhat, sepolia } from 'viem/chains'
+import { VAULTED_CHAINS } from './registry'
 
 /**
- * Chains Vaulted knows how to talk to. Being listed here only means the app can build a client
- * for the chain — whether the escrow contract actually exists on it is decided separately by the
- * deployment records in `generated/deployments.ts`.
+ * The EVM chains wagmi is configured with, derived from the network registry rather than listed
+ * again here.
+ *
+ * One source of truth matters: a chain present in wagmi but absent from the registry is a chain the
+ * wallet can be switched to and the app knows nothing about. Because the registry drops development
+ * networks from a production build, so does this — a production wallet cannot be switched to
+ * Sepolia by Vaulted.
  */
-export const SUPPORTED_CHAINS: Chain[] = [baseSepolia, sepolia, bscTestnet, base, bsc, hardhat]
+export const SUPPORTED_CHAINS: Chain[] = VAULTED_CHAINS.flatMap((chain) =>
+  chain.family === 'evm' && chain.viemChain ? [chain.viemChain] : [],
+)
 
 export function findChain(chainId: number): Chain | null {
   return SUPPORTED_CHAINS.find((chain) => chain.id === chainId) ?? null

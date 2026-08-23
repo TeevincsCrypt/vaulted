@@ -441,7 +441,7 @@ function MultiChain() {
       <SectionHeading
         eyebrow="Networks"
         title="Built to be multi-chain"
-        body="Vaulted separates the product from the chain it settles on, so each network gets its own escrow implementation behind one interface. Only networks with a deployed contract can take a payment — the rest say so."
+        body="Vaulted separates the product from the chain it settles on. Payment links settle wherever a token is configured; escrow needs a Vaulted contract deployed to that network, so a network can take payments before it can hold a budget. Each card says which."
       />
 
       <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -455,8 +455,8 @@ function MultiChain() {
       <Reveal delay={120}>
         <p className="mt-6 text-[12.5px] text-muted-foreground">
           {live.length > 0
-            ? `${live.length} network${live.length === 1 ? '' : 's'} live today. Everything else is listed as planned, not available.`
-            : 'No network is live yet.'}
+            ? `${live.length} network${live.length === 1 ? '' : 's'} can hold an escrow today. Everything else is listed as what it is, not as available.`
+            : 'Payment links settle today. No network can hold an escrow yet — that needs the Vaulted contract deployed, and each card says so.'}
         </p>
       </Reveal>
     </Section>
