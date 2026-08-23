@@ -15,7 +15,9 @@ export { VaultedWordmark as VaultedMark } from './marketing/logo'
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/funds', label: 'Funds' },
   { href: '/request', label: 'Request' },
+  { href: '/inbox', label: 'To pay' },
   { href: '/jobs', label: 'Find work' },
   { href: '/jobs/posted', label: 'My jobs' },
   { href: '/work', label: 'My work' },

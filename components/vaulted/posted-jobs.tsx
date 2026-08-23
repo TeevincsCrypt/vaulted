@@ -15,7 +15,7 @@ import {
 import { useAccount } from 'wagmi'
 import { useVaultedConfig } from '@/lib/vaulted/client'
 import { formatAmount, formatTimestamp, shortAddress } from '@/lib/vaulted/format'
-import type { DisplayStatus } from '@/lib/vaulted/status'
+import { EscrowState, type DisplayStatus } from '@/lib/vaulted/status'
 import { EscrowActions } from './escrow-actions'
 import { useEscrow } from '@/lib/vaulted/client'
 import { Button, Card, Divider, Eyebrow, Notice, Skeleton, StatusPill } from './primitives'
@@ -194,13 +194,32 @@ function PostedJobCard({ job, onChanged }: { job: PostedJob; onChanged: () => vo
           <div className="mt-4">
             {!job.invoiceId ? (
               <Notice tone="warn" icon={<AlertTriangle size={15} />}>
-                No escrow exists for this job, so the budget is not secured. The freelancer raises the
-                payment request; you then fund it from the link they share.
+                No escrow exists for this job, so the budget is not secured. The contract makes the
+                person being paid its creator, so the freelancer raises it — they have been notified
+                — and you fund it here as soon as they do.
               </Notice>
             ) : !job.escrow?.live ? (
               <Notice tone="warn" icon={<AlertTriangle size={15} />}>
                 {job.escrow?.reason ?? 'The chain could not be read just now.'}
               </Notice>
+            ) : live && live.state === EscrowState.Created ? (
+              /*
+                Raised but not funded: the budget is not secured yet, and `EscrowActions` has
+                nothing to offer the payer in this state. Funding is the action, so offer it here.
+              */
+              <div className="flex flex-col gap-3">
+                <Notice tone="warn" icon={<AlertTriangle size={15} />} title="Budget not secured yet">
+                  The escrow exists but holds nothing until you fund it. Do it before work starts —
+                  until then there is no protection for either side.
+                </Notice>
+                <Link
+                  href={`/pay/${job.invoiceId}`}
+                  className="inline-flex h-12 w-fit items-center gap-2 rounded-xl px-6 text-[15px] font-semibold text-[#08080a] transition-transform hover:-translate-y-0.5"
+                  style={{ background: 'var(--vt-accent)' }}
+                >
+                  Fund {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
+                </Link>
+              </div>
             ) : live && config ? (
               <>
                 <p className="mb-3 inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground">

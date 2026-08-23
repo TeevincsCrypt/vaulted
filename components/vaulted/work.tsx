@@ -198,9 +198,18 @@ function WorkCard({ row, highlight, onChanged }: { row: WorkRow; highlight?: boo
               </Notice>
             )
           ) : (
-            <Notice tone="warn" icon={<Clock size={15} />}>
-              The client has not created the escrow for this job yet, so the budget is not secured.
-              Nothing is payable until they do.
+            <Notice tone="warn" icon={<Clock size={15} />} title="Budget not secured yet">
+              No escrow exists for this job. The contract makes the person being paid its creator,
+              so this one is yours to raise — it costs one signature and one transaction, and the
+              client is notified to fund it. Do it before you start work; nothing is protected until
+              the escrow is funded.
+              <Link
+                href={`/request?job=${job.jobId}`}
+                className="mt-3 inline-flex h-10 items-center gap-1.5 rounded-xl px-4 text-[13.5px] font-semibold text-[#08080a]"
+                style={{ background: 'var(--vt-accent)' }}
+              >
+                Secure the budget <ArrowUpRight size={14} />
+              </Link>
             </Notice>
           )}
           {escrow?.live && (

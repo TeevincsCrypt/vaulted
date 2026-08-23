@@ -409,8 +409,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
           !job.invoiceId &&
           address &&
           job.assignedTo?.toLowerCase() === address.toLowerCase() ? (
-            <Notice tone="neutral" title="You were hired">
-              Raise the payment request so the client can lock the budget in escrow.{' '}
+            <Notice tone="neutral" title="You were hired — secure the budget">
+              Nothing is locked yet. Raising the escrow takes one signature and one transaction;
+              the client then funds it before you start.{' '}
               <Link href={`/request?job=${job.jobId}`} className="underline">
                 Secure the budget
               </Link>
@@ -422,11 +423,22 @@ export function JobDetail({ jobId }: { jobId: string }) {
                 Open it
               </Link>{' '}
               to see its live state.
+              {isClient && (
+                <>
+                  {' '}
+                  If it is still awaiting funding,{' '}
+                  <Link href={`/pay/${job.invoiceId}`} className="underline">
+                    fund the budget
+                  </Link>{' '}
+                  to lock it in.
+                </>
+              )}
             </Notice>
           ) : (
             <Notice tone="warn" icon={<Clock size={15} />}>
-              No escrow has been created for this job yet, so the budget is not secured. The client
-              creates one from the dashboard after accepting an applicant.
+              No escrow has been created for this job yet, so the budget is not secured. The
+              contract makes the person being paid the escrow's creator, so the freelancer raises it
+              once hired and the client funds it.
             </Notice>
           )}
         </div>
@@ -494,8 +506,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
           )}
           {job.status === 'ASSIGNED' && (
             <Notice tone="neutral" title="Next step">
-              Create a payment request for {shortAddress(job.assignedTo, 6)} from the dashboard to
-              secure the budget on chain. Accepting an applicant does not move any funds.
+              Accepting an applicant moves no funds. {shortAddress(job.assignedTo, 6)} raises the
+              escrow — the contract only lets the person being paid create it — and you will be
+              notified to fund it. Nothing is secured until you do.
             </Notice>
           )}
         </Card>

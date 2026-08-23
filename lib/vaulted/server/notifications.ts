@@ -106,8 +106,10 @@ export async function notifyHired(job: { id: string; title: string }, applicantA
         accountId: applicant.id,
         type: 'JOB_HIRED',
         title: 'You were hired',
-        body: `You were accepted for ${job.title}`,
-        href: `/work`,
+        body: `You were accepted for ${job.title}. Raise the escrow so the client can lock the budget.`,
+        // Straight to the step that secures the money, not to a list. The contract makes the payee
+        // the escrow's creator, so this is the freelancer's move and nobody else can make it.
+        href: `/request?job=${job.id}`,
         jobId: job.id,
       },
     ])
