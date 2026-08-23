@@ -38,7 +38,7 @@ import {
 import { EscrowActions } from './escrow-actions'
 import { VaultedMark } from './shell'
 import { TransactionStatus } from './transaction-status'
-import { ConnectWalletButton, NetworkGuard } from './wallet'
+import { NetworkGuard, SignInButton } from './wallet'
 
 /**
  * The client-facing payment page.
@@ -359,10 +359,11 @@ function FundPanel(props: {
       <div className="flex flex-col gap-3">
         {addressedTo && (
           <p className="text-[13px] text-muted-foreground">
-            This request is addressed to a specific wallet. Connect it to pay.
+            This request is addressed to a specific wallet. Sign in to the account that owns it
+            to pay.
           </p>
         )}
-        <ConnectWalletButton size="lg" full />
+        <SignInButton size="lg" full />
       </div>
     )
   }

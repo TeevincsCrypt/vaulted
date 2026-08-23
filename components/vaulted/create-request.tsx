@@ -20,7 +20,7 @@ import {
 import { PROTECTION_PERIOD_PRESETS, formatAmount, formatAmountExact, parseAmount } from '@/lib/vaulted/format'
 import { Button, Card, CopyButton, Divider, Eyebrow, Field, Notice, inputClass } from './primitives'
 import { TransactionStatus } from './transaction-status'
-import { ConnectWalletButton, NetworkGuard } from './wallet'
+import { NetworkGuard, SignInButton } from './wallet'
 
 type Stage = 'form' | 'signing' | 'publishing' | 'chain' | 'done'
 
@@ -379,7 +379,7 @@ export function CreateRequest({
         />
 
         {!isConnected ? (
-          <ConnectWalletButton size="lg" full label="Connect wallet to continue" />
+          <SignInButton size="lg" full label="Sign in to continue" />
         ) : (
           <NetworkGuard>
             <Button size="lg" full disabled={!canSubmit} busy={busy} onClick={submit}>

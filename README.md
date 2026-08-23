@@ -183,7 +183,11 @@ npm run e2e:local        # drives the whole path and asserts it against the chai
 npm run seed:local       # escrows in every state, for looking at the UI
 npm run check:escrow-id  # pins the app's id derivation to the contract's
 npm run check:adapters   # pins the chain abstraction to the contract, and to honest availability
-npm run check            # typecheck + both of the above
+npm run check:privy      # pins access-token verification — forgeries, wrong app, expiry
+npm run check            # typecheck + all three of the above
+
+# Needs `npm run build` and a database; stands in for Privy's API only, everything else is real.
+npm run e2e:privy        # sign-in -> account -> assigned wallet -> session cookie
 ```
 
 `check:escrow-id` compares the app's viem escrow-id derivation against vectors produced by the real
@@ -193,34 +197,71 @@ Deploying to the local chain regenerates `lib/vaulted/generated/deployments.ts` 
 chain-31337 addresses. That file is committed for real deployments only — leave the local churn out
 of your commits (`git checkout -- lib/vaulted/generated/deployments.ts`).
 
-## Accounts and sign-in
+## Accounts, sign-in and wallets
 
-Vaulted is account-based. The product surfaces — dashboard, request, jobs, my work, settings — are
-gated server-side and redirect a signed-out visitor to `/login`. **Payment and receipt pages are
-deliberately public**: a client paying an invoice must never be made to create an account.
+Vaulted is account-based, and an account comes with its wallet. There is no "connect wallet" step
+and no wallet picker: signing in with X through [Privy](https://privy.io) provisions an embedded
+Ethereum wallet for the account and keeps it. Your X handle becomes your Vaulted handle, so a
+request can be addressed to `@you`, and the wallet behind that handle is the one Privy assigned.
 
-Identity comes from X/Twitter OAuth 2.0 (PKCE, confidential client, hand-rolled — no auth
-dependency). Your X handle becomes your Vaulted handle, so a request can be addressed to `@you`.
+The product surfaces — dashboard, request, jobs, my work, your wallet — are gated server-side and
+redirect a signed-out visitor to `/login`. **Payment and receipt pages stay readable without an
+account**: anyone with a link can inspect the escrow on chain. Funding one is different — signing a
+transaction needs a wallet, and since wallets come with accounts, the pay button asks the client to
+sign in. That is a real cost of this model and the page says so rather than showing a button that
+cannot work.
 
-Signing in and getting paid are separate on purpose:
+### Custody
 
-- **Signing in** proves who you are. It grants Vaulted nothing over your funds.
-- **Linking a wallet** needs a signature from that wallet, at `/settings`. Only a linked, proven
-  wallet can be resolved from a handle — an unverified mapping would misdirect real money.
+Privy splits the wallet's key between a secure enclave and the user's device; a transaction is
+signed only when the user approves it. **Vaulted holds no share of that key**, stores no key
+material, and has no path — API, admin or otherwise — to move a user's funds or release an escrow
+on their behalf. The escrow contract itself is unchanged and remains the only thing that can move
+locked funds.
+
+This does add a dependency, and it is not hidden: if a user loses their X account, recovery goes
+through Privy, not Vaulted. `/settings` says so and offers Privy's key export, which renders the
+key in a frame on Privy's own domain — Vaulted never receives it — so a user can leave with their
+wallet.
+
+### How a session is established
+
+1. Privy authenticates the user with X and returns a short-lived ES256 access token.
+2. The browser posts that token to `POST /api/auth/privy`.
+3. The server verifies it against the app's public verification key with the algorithm pinned and
+   the issuer, audience and expiry checked — see `lib/vaulted/server/privy.ts`, and
+   `npm run check:privy` for the suite that pins forgery rejection.
+4. The handle, display name and **wallet address** are then read back from Privy over an
+   app-secret-authenticated call. Nothing in the request body is trusted: a caller cannot pick
+   their own handle or point their handle at an address they do not control.
+5. Only then is the Vaulted session cookie minted.
 
 Sessions are HMAC-signed cookies (httpOnly, SameSite=Lax, `Secure` in production) with a
 constant-time comparison and a 30-day expiry. `AUTH_SECRET` has no fallback default: without it,
-sign-in is disabled rather than running on a guessable key.
+sign-in is disabled rather than running on a guessable key. The Vaulted session is also dropped as
+soon as the Privy session ends, so a cookie never outlives the wallet it speaks for.
 
-Required to enable it: `AUTH_SECRET`, `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET`. Register the
-callback as `<origin>/api/auth/twitter/callback`. Until they are set, `/login` says so plainly.
+Required to enable sign-in: `AUTH_SECRET`, `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`. In the
+Privy dashboard, enable Twitter/X as a login method, turn on Ethereum embedded wallets, and add
+your origin to the allowed domains. Until they are set, `/login` says so plainly and no part of the
+UI pretends a wallet exists.
 
-## Connecting a wallet without an extension
+Three deployment details that are easy to get wrong:
 
-WalletConnect is offered first in the connect dialog — it is the only route that works on mobile or
-for anyone without a browser extension. It needs a free project id from
-[cloud.reown.com](https://cloud.reown.com) in `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. Without it the
-dialog says so rather than silently showing extension-only options.
+- **`NEXT_PUBLIC_PRIVY_APP_ID` must be set at build time**, not only at run time — Next substitutes
+  `NEXT_PUBLIC_*` into the browser bundle while building. `PRIVY_APP_SECRET`, `AUTH_SECRET` and
+  `PRIVY_VERIFICATION_KEY` are read on the server at run time, so those can be set later.
+- **A Privy app id is exactly 25 characters.** A truncated one is caught at startup and reported in
+  the UI rather than being handed to the SDK, which would otherwise throw while the provider mounts
+  and fail the build on an unrelated prerendered page.
+- **Embedded wallets require HTTPS** anywhere but `localhost`. That is Privy's own restriction; over
+  plain HTTP the provider refuses to initialise.
+
+### Wallets linked before this
+
+Accounts that linked a wallet by signature under the earlier model keep it: `LinkedWallet.provenance`
+records `SIGNATURE` for those rows and `PRIVY_EMBEDDED` for the assigned ones, and the migration is
+additive — nothing was dropped or rewritten.
 
 ## The job lifecycle
 

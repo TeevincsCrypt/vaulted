@@ -79,11 +79,12 @@ model Invoice {
   @@index([chainId, expiresAt])
 }
 
-/// A Vaulted account, backed by a Twitter/X identity.
+/// A Vaulted account, backed by a Twitter/X identity and the wallet Privy provisions for it.
 ///
-/// The handle is not self-asserted: it comes from the OAuth provider, so `@alice` on Vaulted is the
-/// same `@alice` on Twitter. Wallets are separate and each needs its own signature — logging in
-/// proves who you are, signing proves which wallet is yours, and payments need the second.
+/// The handle is not self-asserted: it comes from the OAuth provider by way of Privy, so `@alice`
+/// on Vaulted is the same `@alice` on X. The wallet arrives with the account rather than being
+/// linked afterwards — Privy holds its key material split across an enclave and the user's device,
+/// so Vaulted can address the wallet but cannot move funds from it.
 ///
 /// Mapped onto the original `Username` table so no data or table is dropped.
 model Account {
@@ -91,15 +92,18 @@ model Account {
 
   /// Immutable Twitter/X user id. The handle can change; this cannot.
   twitterId   String? @unique
+  /// Privy DID for this account. The subject of every verified access token.
+  privyUserId String? @unique
   /// Lowercased handle, stored without the leading `@`.
   name        String  @unique
   displayName String?
   avatarUrl   String?
 
-  /// Primary wallet, once one has been linked and proven.
+  /// Primary wallet — the embedded wallet Privy assigned to this account.
   ownerAddress   String?
   ownerChainKey  String?
-  /// Signature that proved the primary wallet. Retained so the link stays auditable.
+  /// Signature that proved the primary wallet, for wallets linked before embedded wallets. Null for
+  /// a Privy-assigned wallet, whose provenance is the attestation recorded on the wallet row.
   claimSignature String?
 
   createdAt DateTime @default(now())
@@ -114,8 +118,10 @@ model Account {
 
 /// One verified wallet per chain for an account, so `@alice` resolves differently per network.
 ///
-/// A row exists only once a signature proved control of the address. Unverified addresses are
-/// rejected rather than stored as pending — an unproven mapping would misdirect real money.
+/// A row exists only once the address was proven, never as a pending claim — an unproven mapping
+/// would misdirect real money. There are two kinds of proof, recorded in `provenance`:
+/// `PRIVY_EMBEDDED` for a wallet read back from Privy over an app-secret-authenticated call, and
+/// `SIGNATURE` for wallets linked by signature before embedded wallets, which are kept as they are.
 model LinkedWallet {
   id         String @id @default(cuid())
   usernameId String
@@ -123,7 +129,10 @@ model LinkedWallet {
   chainKey String
   address  String
 
-  proofSignature String
+  /// PRIVY_EMBEDDED | SIGNATURE
+  provenance     String   @default("SIGNATURE")
+  /// Only set for `SIGNATURE` rows. Retained so those links stay auditable.
+  proofSignature String?
   verifiedAt     DateTime @default(now())
 
   account Account @relation(fields: [usernameId], references: [id], onDelete: Cascade)

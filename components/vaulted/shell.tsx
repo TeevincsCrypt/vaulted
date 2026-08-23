@@ -7,6 +7,7 @@ import { LogOut, Menu, X } from 'lucide-react'
 import { useVaultedConfig } from '@/lib/vaulted/client'
 import { VaultedWordmark } from './marketing/logo'
 import { NotificationBell } from './notifications'
+import { useVaultedAuth } from './auth-provider'
 import { useSession } from './session-provider'
 import { WalletBadge } from './wallet'
 
@@ -112,7 +113,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function AccountChip() {
-  const { account, signOut } = useSession()
+  const { account } = useSession()
+  const { signOut } = useVaultedAuth()
   const [open, setOpen] = useState(false)
   if (!account) return null
 
@@ -145,7 +147,7 @@ function AccountChip() {
             onClick={() => setOpen(false)}
             className="block px-4 py-2.5 text-[13px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
           >
-            Wallets
+            Your wallet
           </Link>
           <button
             type="button"

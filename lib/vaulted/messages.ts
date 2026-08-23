@@ -19,42 +19,6 @@ export function isFresh(issuedAt: number, now = Math.floor(Date.now() / 1000)): 
   return issuedAt <= now + 60 && now - issuedAt <= SIGNATURE_TTL_SECONDS
 }
 
-export function usernameClaimMessage(input: {
-  handle: string
-  address: string
-  chainKey: string
-  issuedAt: number
-}): string {
-  return [
-    'Vaulted — claim handle',
-    '',
-    `Handle: @${input.handle}`,
-    `Wallet: ${getAddress(input.address)}`,
-    `Chain: ${input.chainKey}`,
-    `Issued: ${new Date(input.issuedAt * 1000).toISOString()}`,
-    '',
-    'Signing claims this handle for the wallet above. It does not move any funds.',
-  ].join('\n')
-}
-
-export function usernameLinkMessage(input: {
-  handle: string
-  address: string
-  chainKey: string
-  issuedAt: number
-}): string {
-  return [
-    'Vaulted — link address to handle',
-    '',
-    `Handle: @${input.handle}`,
-    `Address: ${input.address}`,
-    `Chain: ${input.chainKey}`,
-    `Issued: ${new Date(input.issuedAt * 1000).toISOString()}`,
-    '',
-    'Signing proves you control this address. It does not move any funds.',
-  ].join('\n')
-}
-
 export function jobCreationMessage(input: {
   jobId: string
   title: string

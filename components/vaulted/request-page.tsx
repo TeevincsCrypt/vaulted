@@ -103,16 +103,16 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
             <Card className="p-6">
               <Eyebrow>Before you share a link</Eyebrow>
               <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">
-                You have not linked a wallet to @{account.name} yet. Payments still work — the escrow
-                pays whichever wallet creates it — but nobody can address a request to your handle
-                until you link one.
+                No wallet is recorded for @{account.name} yet. Payments still work — the escrow pays
+                whichever wallet creates it — but nobody can address a request to your handle until
+                one is. It is assigned when you sign in; if it is missing, sign out and back in.
               </p>
               <Link
                 href="/settings"
                 className="mt-3 inline-flex items-center gap-1.5 text-[13px]"
                 style={{ color: 'var(--vt-accent)' }}
               >
-                Link a wallet <ArrowUpRight size={14} />
+                Check your wallet <ArrowUpRight size={14} />
               </Link>
             </Card>
           )}

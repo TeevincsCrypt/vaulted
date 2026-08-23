@@ -314,7 +314,7 @@ function SubmitWork({ row, onChanged }: { row: WorkRow; onChanged?: () => void }
       ) : (
         <Button full variant="secondary" onClick={() => setOpen(true)} disabled={!isConnected}>
           <Upload size={15} />
-          {isConnected ? 'Submit completed work' : 'Connect a wallet to submit work'}
+          {isConnected ? 'Submit completed work' : 'Sign in to submit work'}
         </Button>
       )}
     </div>

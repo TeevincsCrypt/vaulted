@@ -11,6 +11,7 @@ import {
   FileCheck2,
   Gavel,
   Handshake,
+  KeyRound,
   Layers,
   Menu,
   Megaphone,
@@ -498,6 +499,11 @@ function Security() {
       icon: Wallet,
       title: 'Non-custodial by construction',
       body: 'Vaulted holds no keys and has no withdrawal path. Escrowed funds can only ever reach that escrow’s own payer or payee.',
+    },
+    {
+      icon: KeyRound,
+      title: 'Your wallet, and who else is involved',
+      body: 'Signing in with X assigns your account a wallet whose key Privy splits between a secure enclave and your device. Vaulted holds no share of it — but Privy is a dependency for recovery, and you can export the key and leave at any time.',
     },
     {
       icon: Clock,

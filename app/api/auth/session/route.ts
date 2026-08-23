@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { currentAccount } from '@/lib/vaulted/server/accounts'
+import { isPrivyConfigured } from '@/lib/vaulted/server/privy'
 import { hasAuthSecret } from '@/lib/vaulted/server/session'
-import { isTwitterConfigured } from '@/lib/vaulted/server/twitter'
 
 /** GET /api/auth/session — who is signed in, and whether sign-in is even possible here. */
 export async function GET() {
-  const configured = isTwitterConfigured() && hasAuthSecret()
+  const configured = isPrivyConfigured() && hasAuthSecret()
   try {
     const account = await currentAccount()
     return NextResponse.json({ account, authConfigured: configured })

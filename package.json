@@ -21,18 +21,21 @@
     "seed:local": "tsx scripts/seed-local-chain.mjs",
     "typecheck": "tsc --noEmit",
     "check:adapters": "tsx scripts/check-adapters.mjs",
-    "check": "npm run typecheck && npm run check:escrow-id && npm run check:adapters"
+    "check": "npm run typecheck && npm run check:escrow-id && npm run check:adapters && npm run check:privy",
+    "check:privy": "tsx scripts/check-privy-token.mjs",
+    "e2e:privy": "tsx scripts/e2e-privy-session.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
+    "@privy-io/react-auth": "3.37.4",
+    "@privy-io/wagmi": "4.0.16",
     "@tanstack/react-query": "^5.101.4",
-    "@walletconnect/ethereum-provider": "^2.23.10",
     "lucide-react": "^1.16.0",
     "next": "16.3.0",
     "prisma": "6.19.3",
     "react": "^19",
     "react-dom": "^19",
-    "viem": "^2.55.13",
+    "viem": "2.55.10",
     "wagmi": "^3.7.6"
   },
   "devDependencies": {

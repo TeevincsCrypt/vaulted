@@ -1,16 +1,21 @@
 import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
-import { usernameLinkMessage } from '../messages'
-import { getChain } from '../registry'
-import { ApiError, requireSigner } from './auth'
+import { defaultChain, getChain, VAULTED_CHAINS } from '../registry'
+import { ApiError } from './auth'
+import type { PrivyUser } from './privy'
 import { readSession } from './session'
 
 /**
- * Accounts and their verified wallets.
+ * Accounts and the wallet each one owns.
  *
- * Identity comes from Twitter — the handle is issued by the provider, not self-asserted. Wallets
- * are a separate, cryptographic step: signing in tells us who you are, signing a message tells us
- * which wallet is yours, and only the second is trusted for payments.
+ * Identity comes from X by way of Privy — the handle is issued by the provider, not self-asserted.
+ * The wallet arrives with the account: Privy provisions an embedded wallet on first sign-in and
+ * reports its address over an app-secret-authenticated call, so the address recorded here is
+ * attested by the provider rather than claimed by the browser. Vaulted stores no key material and
+ * cannot sign for it; only the signed-in user, through Privy, can move funds.
+ *
+ * Wallets linked by signature before embedded wallets existed are left exactly as they were — see
+ * `LinkedWallet.provenance`.
  */
 
 export type SessionAccount = {
@@ -22,38 +27,111 @@ export type SessionAccount = {
   wallets: { chainKey: string; address: string }[]
 }
 
-/** Creates the account on first login, and keeps handle/avatar in step with Twitter after that. */
-export async function upsertTwitterAccount(profile: {
-  id: string
-  username: string
-  name: string
-  avatarUrl: string | null
-}) {
-  const handle = profile.username.toLowerCase()
+/**
+ * The chain an embedded wallet is filed under.
+ *
+ * One row, not one per network: the same EVM account address is valid on every EVM chain, so
+ * duplicating it would only make the account look like it owns nine wallets. Resolution for the
+ * other EVM chains goes through the primary-address fallback in {@link resolvePayeeAddress}.
+ */
+function primaryEvmChainKey(): string | null {
+  const preferred = defaultChain()
+  if (preferred?.family === 'evm') return preferred.key
+  return VAULTED_CHAINS.find((chain) => chain.family === 'evm')?.key ?? null
+}
 
-  const existingById = await prisma.account.findUnique({ where: { twitterId: profile.id } })
-  if (existingById) {
-    return prisma.account.update({
-      where: { id: existingById.id },
-      // The handle is keyed on the immutable Twitter id, so a rename follows the same account.
-      data: { name: handle, displayName: profile.name, avatarUrl: profile.avatarUrl },
-    })
+/**
+ * Creates or refreshes the account behind a verified Privy session.
+ *
+ * Everything written here comes from {@link fetchPrivyUser}, which reads it back from Privy with
+ * the app secret. Nothing in the request body reaches this function, so a caller cannot pick their
+ * own handle or point their handle at an address they do not control.
+ */
+export async function upsertPrivyAccount(user: PrivyUser) {
+  if (!user.twitter) {
+    throw new ApiError(
+      'That Privy account has no X profile linked. Vaulted usernames come from X, so sign in with X.',
+      409,
+    )
   }
 
-  const existingByName = await prisma.account.findUnique({ where: { name: handle } })
-  if (existingByName) {
-    if (existingByName.twitterId && existingByName.twitterId !== profile.id) {
-      throw new ApiError('That handle already belongs to another account.', 409)
+  const handle = user.twitter.username.toLowerCase()
+  const profile = {
+    twitterId: user.twitter.subject,
+    privyUserId: user.id,
+    displayName: user.twitter.name,
+    avatarUrl: user.twitter.profilePictureUrl,
+  }
+
+  // Match on the most stable identifier available, in order. The Privy DID is the identity this
+  // deployment issues sessions against; the Twitter subject adopts an account created by the
+  // earlier OAuth flow; the handle is last because handles can be renamed and reused.
+  const existing =
+    (await prisma.account.findUnique({ where: { privyUserId: user.id } })) ??
+    (await prisma.account.findUnique({ where: { twitterId: user.twitter.subject } })) ??
+    (await prisma.account.findUnique({ where: { name: handle } }))
+
+  let account
+  if (existing) {
+    if (existing.privyUserId && existing.privyUserId !== user.id) {
+      throw new ApiError('That handle already belongs to another Vaulted account.', 409)
     }
-    return prisma.account.update({
-      where: { id: existingByName.id },
-      data: { twitterId: profile.id, displayName: profile.name, avatarUrl: profile.avatarUrl },
+    if (existing.twitterId && existing.twitterId !== user.twitter.subject) {
+      throw new ApiError('That handle already belongs to another Vaulted account.', 409)
+    }
+    account = await prisma.account.update({
+      where: { id: existing.id },
+      // The account is keyed on the immutable X user id, so a rename follows the same account.
+      data: { ...profile, name: handle },
     })
+  } else {
+    account = await prisma.account.create({ data: { ...profile, name: handle } })
   }
 
-  return prisma.account.create({
-    data: { twitterId: profile.id, name: handle, displayName: profile.name, avatarUrl: profile.avatarUrl },
+  if (user.embeddedWallet) {
+    await recordEmbeddedWallet(account.id, user.embeddedWallet.address)
+    // Re-read: the row above was fetched before the wallet was attached, and returning it would
+    // report a null address for an account that now has one.
+    return prisma.account.findUniqueOrThrow({ where: { id: account.id } })
+  }
+
+  return account
+}
+
+/**
+ * Records the Privy-assigned wallet against the account.
+ *
+ * There is no signature to check and none is invented: the proof is that Privy returned this
+ * address for this account over an authenticated call, and `provenance` says so rather than
+ * leaving a blank where a signature used to be.
+ */
+async function recordEmbeddedWallet(accountId: string, rawAddress: string) {
+  if (!isAddress(rawAddress)) {
+    throw new ApiError('Privy returned an address that is not a valid EVM address.', 502)
+  }
+  const address = getAddress(rawAddress)
+
+  const conflicting = await prisma.linkedWallet.findMany({
+    where: { address, usernameId: { not: accountId } },
   })
+  if (conflicting.length > 0) {
+    throw new ApiError('That wallet is already recorded against another Vaulted account.', 409)
+  }
+
+  const chainKey = primaryEvmChainKey()
+  if (!chainKey) throw new ApiError('This deployment knows of no EVM chain to file the wallet under.', 500)
+
+  await prisma.$transaction([
+    prisma.linkedWallet.upsert({
+      where: { usernameId_chainKey: { usernameId: accountId, chainKey } },
+      create: { usernameId: accountId, chainKey, address, provenance: 'PRIVY_EMBEDDED' },
+      update: { address, provenance: 'PRIVY_EMBEDDED', proofSignature: null, verifiedAt: new Date() },
+    }),
+    prisma.account.update({
+      where: { id: accountId },
+      data: { ownerAddress: address, ownerChainKey: chainKey, claimSignature: null },
+    }),
+  ])
 }
 
 export async function currentAccount(): Promise<SessionAccount | null> {
@@ -83,85 +161,31 @@ export async function requireAccount(): Promise<SessionAccount> {
   return account
 }
 
-/**
- * Attaches a wallet to the signed-in account, proven by signature.
- *
- * Being signed in is not enough — without the signature anyone could point their handle at someone
- * else's wallet, or claim a wallet they do not control.
- */
-export async function linkWallet(input: {
-  accountId: string
-  handle: string
-  chainKey: string
-  address: string
-  issuedAt: number
-  signature: string
-}) {
-  const chain = getChain(input.chainKey)
-  if (!chain) throw new ApiError(`Unknown chain "${input.chainKey}".`, 400)
-  if (chain.family !== 'evm') {
-    throw new ApiError(
-      `Linking a ${chain.name} wallet is not supported yet: Vaulted cannot verify a signature from ` +
-        'that family, and an unverified address would misdirect payments.',
-      409,
-    )
-  }
-  if (!isAddress(input.address)) throw new ApiError('Not a wallet address.', 400)
-  const address = getAddress(input.address)
-
-  await requireSigner({
-    message: usernameLinkMessage({
-      handle: input.handle,
-      address,
-      chainKey: chain.key,
-      issuedAt: input.issuedAt,
-    }),
-    signature: input.signature,
-    expected: address,
-    issuedAt: input.issuedAt,
-    what: 'this wallet',
-  })
-
-  const taken = await prisma.linkedWallet.findUnique({
-    where: { chainKey_address: { chainKey: chain.key, address } },
-  })
-  if (taken && taken.usernameId !== input.accountId) {
-    throw new ApiError('That wallet is already linked to another account.', 409)
-  }
-
-  await prisma.$transaction([
-    prisma.linkedWallet.upsert({
-      where: { usernameId_chainKey: { usernameId: input.accountId, chainKey: chain.key } },
-      create: {
-        usernameId: input.accountId,
-        chainKey: chain.key,
-        address,
-        proofSignature: input.signature,
-      },
-      update: { address, proofSignature: input.signature, verifiedAt: new Date() },
-    }),
-    prisma.account.update({
-      where: { id: input.accountId },
-      // The first linked wallet becomes the primary one payments resolve to.
-      data: { ownerAddress: address, ownerChainKey: chain.key, claimSignature: input.signature },
-    }),
-  ])
-
-  return currentAccount()
-}
-
 export async function accountByHandle(rawHandle: string) {
   const handle = rawHandle.trim().replace(/^@/, '').toLowerCase()
   if (!handle) return null
   return prisma.account.findUnique({ where: { name: handle }, include: { addresses: true } })
 }
 
-/** Resolves `@handle` to the wallet that should be paid on a given chain. */
+/**
+ * Resolves `@handle` to the wallet that should be paid on a given chain.
+ *
+ * The fallback to the primary address only crosses chains within the same family. An EVM account
+ * address is the same on every EVM chain, so that fallback is sound; handing an EVM address back
+ * for a Solana payment would send real money nowhere.
+ */
 export async function resolvePayeeAddress(handle: string, chainKey: string): Promise<string | null> {
   const account = await accountByHandle(handle)
   if (!account) return null
+
   const onChain = account.addresses.find((entry) => entry.chainKey === chainKey)
-  return onChain?.address ?? account.ownerAddress ?? null
+  if (onChain) return onChain.address
+
+  if (!account.ownerAddress || !account.ownerChainKey) return null
+  const requested = getChain(chainKey)
+  const owner = getChain(account.ownerChainKey)
+  if (!requested || !owner || requested.family !== owner.family) return null
+  return account.ownerAddress
 }
 
 export async function accountForAddress(address: string) {

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { AuthProvider } from '@/components/vaulted/auth-provider'
 import { SessionProvider } from '@/components/vaulted/session-provider'
 import { Web3Provider } from '@/components/web3-provider'
 
@@ -19,7 +20,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <body>
         <SessionProvider>
-          <Web3Provider>{children}</Web3Provider>
+          <Web3Provider>
+            <AuthProvider>{children}</AuthProvider>
+          </Web3Provider>
         </SessionProvider>
       </body>
     </html>

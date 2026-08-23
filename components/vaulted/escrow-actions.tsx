@@ -10,7 +10,7 @@ import { EscrowState } from '@/lib/vaulted/status'
 import { formatAmount } from '@/lib/vaulted/format'
 import { Button, Divider, Notice } from './primitives'
 import { TransactionStatus } from './transaction-status'
-import { ConnectWalletButton, NetworkGuard } from './wallet'
+import { NetworkGuard, SignInButton } from './wallet'
 
 /**
  * Every action a connected wallet is entitled to take on an escrow, derived from the on-chain state
@@ -107,10 +107,10 @@ export function EscrowActions({
       />
 
       {!isConnected ? (
-        <ConnectWalletButton
+        <SignInButton
           size="lg"
           full
-          label={canTimeout ? 'Connect wallet to auto-release' : 'Connect wallet'}
+          label={canTimeout ? 'Sign in to auto-release' : 'Sign in with X'}
         />
       ) : (
         <NetworkGuard>

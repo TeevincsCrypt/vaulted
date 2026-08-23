@@ -10,7 +10,7 @@ import { jobAcceptMessage, jobApplicationMessage, jobCreationMessage } from '@/l
 import { defaultChain, getChain } from '@/lib/vaulted/registry'
 import { AddressChip, Button, Card, Divider, Eyebrow, Field, Notice, Skeleton, inputClass } from './primitives'
 import { AppShell } from './shell'
-import { ConnectWalletButton } from './wallet'
+import { SignInButton } from './wallet'
 
 /**
  * Funded jobs.
@@ -266,7 +266,7 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
       {error && <div className="mb-3"><Notice tone="danger">{error}</Notice></div>}
 
       {!isConnected ? (
-        <ConnectWalletButton size="lg" full label="Connect wallet to post" />
+        <SignInButton size="lg" full label="Sign in to post a job" />
       ) : (
         <Button size="lg" full busy={busy} disabled={!title.trim() || !description.trim() || !amount} onClick={submit}>
           Post job on {chain.shortName}
@@ -441,7 +441,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
               <p className="mt-2 text-[13.5px] text-muted-foreground">You have already applied to this job.</p>
             ) : !isConnected ? (
               <div className="mt-3">
-                <ConnectWalletButton full label="Connect wallet to apply" />
+                <SignInButton full label="Sign in to apply" />
               </div>
             ) : (
               <div className="mt-3 flex flex-col gap-3">

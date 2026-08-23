@@ -13,11 +13,15 @@ export type SessionAccount = {
 
 type SessionValue = {
   account: SessionAccount | null
-  /** False when Twitter sign-in is not configured on this deployment. */
+  /** False when sign-in is not configured on this deployment. */
   authConfigured: boolean
   loading: boolean
   refresh: () => Promise<void>
-  signOut: () => Promise<void>
+  /**
+   * Drops the Vaulted session cookie. Does not touch the Privy session — signing out of both is
+   * orchestrated by {@link useVaultedAuth}, which can reach Privy's hooks and this cannot.
+   */
+  clearSession: () => Promise<void>
 }
 
 const SessionContext = createContext<SessionValue>({
@@ -25,7 +29,7 @@ const SessionContext = createContext<SessionValue>({
   authConfigured: false,
   loading: true,
   refresh: async () => {},
-  signOut: async () => {},
+  clearSession: async () => {},
 })
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -50,15 +54,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
 
-  const signOut = useCallback(async () => {
+  const clearSession = useCallback(async () => {
     await fetch('/api/auth/signout', { method: 'POST' })
     setAccount(null)
-    window.location.href = '/'
   }, [])
 
   const value = useMemo(
-    () => ({ account, authConfigured, loading, refresh, signOut }),
-    [account, authConfigured, loading, refresh, signOut],
+    () => ({ account, authConfigured, loading, refresh, clearSession }),
+    [account, authConfigured, loading, refresh, clearSession],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
