@@ -111,7 +111,8 @@ model Account {
 
   addresses       LinkedWallet[]
   notifications   Notification[]
-  paymentRequests PaymentRequest[]
+  paymentRequests PaymentRequest[] @relation("PaymentRequestCreator")
+  paymentsOwed    PaymentRequest[] @relation("PaymentRequestPayer")
 
   @@index([ownerAddress])
   @@map("Username")
@@ -208,8 +209,9 @@ model Job {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  applications JobApplication[]
-  invoice      Invoice?
+  applications   JobApplication[]
+  invoice        Invoice?
+  paymentRequest PaymentRequest?
 
   @@index([status, createdAt])
   @@index([clientAddress])
@@ -251,6 +253,15 @@ model PaymentRequest {
 
   creatorId String
 
+  /// Who is being asked to pay, when the request is addressed to a Vaulted account rather than
+  /// being an open link. Nullable because an open link is still the default.
+  payerAccountId String?
+
+  /// Set when this payment is a job's budget on a network that cannot hold an escrow. The job is
+  /// paid directly and the money is the worker's the moment it lands — there is no protection
+  /// window, and the UI says so.
+  jobId String? @unique
+
   /// Amount in token base units, as a decimal string — never a float.
   amount   String
   /// Token symbol at the time of creation, so a later registry change cannot restate the ask.
@@ -277,8 +288,11 @@ model PaymentRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  creator Account @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator Account  @relation("PaymentRequestCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  payer   Account? @relation("PaymentRequestPayer", fields: [payerAccountId], references: [id], onDelete: SetNull)
+  job     Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([creatorId, createdAt])
+  @@index([payerAccountId, createdAt])
   @@index([status])
 }

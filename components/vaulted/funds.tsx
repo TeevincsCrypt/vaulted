@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ArrowUpFromLine, Coins, ShieldCheck } from 'lucide-react'
 import { erc20Abi, isAddress, getAddress } from 'viem'
 import { useAccount, useBalance } from 'wagmi'
 import { readableError, usePaymentConfig, useTokenBalance, useTransaction } from '@/lib/vaulted/client'
 import { formatAmount, formatAmountExact, parseAmount, shortAddress } from '@/lib/vaulted/format'
+import { PRIVY_APP_ID } from '@/lib/vaulted/privy'
 import { useVaultedAuth } from './auth-provider'
 import {
   Button,
@@ -20,6 +21,7 @@ import {
 } from './primitives'
 import { useSession } from './session-provider'
 import { AppShell } from './shell'
+import { SolanaWithdraw } from './solana-pay'
 import { TransactionStatus } from './transaction-status'
 import { NetworkGuard, SignInButton } from './wallet'
 
@@ -391,27 +393,34 @@ function SolanaFunds({ address }: { address: string }) {
     | { status: 'error'; reason: string }
   >({ status: 'loading' })
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const response = await fetch(`/api/solana/balance?address=${address}`, { cache: 'no-store' })
-        const body = await response.json()
-        if (cancelled) return
-        if (!response.ok) throw new Error(body.error ?? 'Could not read Solana.')
-        if (!body.readable) {
-          setState({ status: 'error', reason: body.reason ?? 'Solana could not be read.' })
-          return
-        }
-        setState({ status: 'ok', token: body.token, native: body.native, networkName: body.networkName })
-      } catch (cause) {
-        if (!cancelled) setState({ status: 'error', reason: readableError(cause) })
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/solana/balance?address=${address}`, { cache: 'no-store' })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error ?? 'Could not read Solana.')
+      if (!body.readable) {
+        setState({ status: 'error', reason: body.reason ?? 'Solana could not be read.' })
+        return
       }
-    })()
-    return () => {
-      cancelled = true
+      setState({ status: 'ok', token: body.token, native: body.native, networkName: body.networkName })
+    } catch (cause) {
+      setState({ status: 'error', reason: readableError(cause) })
     }
   }, [address])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  /*
+    Re-read after sending rather than subtracting locally. A balance this page worked out for
+    itself would be a guess, and a guess is exactly what it must never show — Solana takes a
+    moment to settle, and the honest answer is whatever the cluster says next.
+  */
+  const reload = useCallback(() => {
+    setState({ status: 'loading' })
+    void load()
+  }, [load])
 
   return (
     <>
@@ -490,16 +499,22 @@ function SolanaFunds({ address }: { address: string }) {
           </Notice>
         </div>
 
-        <Divider className="my-5" />
-
-        <Eyebrow>Sending out</Eyebrow>
-        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-          Vaulted cannot yet sign a Solana transaction for you — the EVM wallet reaches the app
-          through Privy&rsquo;s wagmi connector and the Solana one does not — so there is no send
-          button here rather than one that would not work. To move these funds now, export the
-          wallet key from <a href="/settings" className="underline">your wallet page</a> and send
-          from any Solana wallet.
-        </p>
+        {PRIVY_APP_ID ? (
+          <SolanaWithdraw
+            symbol={state.status === 'ok' ? state.token.symbol : 'USDC'}
+            decimals={state.status === 'ok' ? state.token.decimals : 6}
+            available={state.status === 'ok' ? state.token.amount : null}
+            onSent={reload}
+          />
+        ) : (
+          <>
+            <Divider className="my-5" />
+            <Eyebrow>Sending out</Eyebrow>
+            <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+              Sign-in is not configured on this deployment, so there is no wallet to send from.
+            </p>
+          </>
+        )}
       </Card>
     </>
   )

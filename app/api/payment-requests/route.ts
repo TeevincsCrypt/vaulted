@@ -3,6 +3,7 @@ import { ApiError } from '@/lib/vaulted/server/auth'
 import {
   availablePaymentNetworks,
   createPaymentRequest,
+  listIncomingPaymentRequests,
   listPaymentRequests,
   PaymentRequestError,
 } from '@/lib/vaulted/server/payment-requests'
@@ -10,10 +11,11 @@ import {
 /** GET /api/payment-requests — everything the signed-in account has asked for. */
 export async function GET() {
   try {
-    return NextResponse.json({
-      requests: await listPaymentRequests(),
-      networks: availablePaymentNetworks(),
-    })
+    const [requests, incoming] = await Promise.all([
+      listPaymentRequests(),
+      listIncomingPaymentRequests(),
+    ])
+    return NextResponse.json({ requests, incoming, networks: availablePaymentNetworks() })
   } catch (error) {
     return errorResponse(error)
   }
@@ -33,6 +35,7 @@ export async function POST(request: NextRequest) {
       amount: String(body.amount ?? ''),
       description: String(body.description ?? ''),
       expiresInHours: body.expiresInHours ? Number(body.expiresInHours) : null,
+      toHandle: body.toHandle ? String(body.toHandle) : null,
     })
     return NextResponse.json({ request: created }, { status: 201 })
   } catch (error) {

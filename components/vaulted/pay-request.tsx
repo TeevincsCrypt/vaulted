@@ -6,7 +6,10 @@ import { erc20Abi, getAddress, isAddress } from 'viem'
 import { useAccount } from 'wagmi'
 import { readableError, useTransaction, useVaultedConfig } from '@/lib/vaulted/client'
 import { formatAmount, formatTimestamp } from '@/lib/vaulted/format'
+import { PRIVY_APP_ID } from '@/lib/vaulted/privy'
 import { VaultedWordmark } from './marketing/logo'
+import { useSession } from './session-provider'
+import { SolanaPayButton } from './solana-pay'
 import { Button, Card, CopyButton, Divider, Eyebrow, Field, Notice, inputClass } from './primitives'
 import { StatusChip, shortForFamily } from './payment-requests'
 import { TransactionStatus } from './transaction-status'
@@ -14,14 +17,17 @@ import { TransactionStatus } from './transaction-status'
 /**
  * The public payment page. Anybody with the link can open it, account or not.
  *
- * Two ways to pay, and neither of them decides whether the payment happened:
+ * Three ways to pay, and none of them decides whether the payment happened:
  *
- *   In-app, on an EVM network, when a Vaulted wallet is loaded — a real ERC-20 transfer, whose hash
+ *   In-app on an EVM network, when a Vaulted wallet is loaded — a real ERC-20 transfer, whose hash
  *   is then submitted for verification like any other.
  *
+ *   In-app on Solana, when signed in — an SPL transfer the server builds and the user's own wallet
+ *   signs. This is what makes the wallet Vaulted assigns usable for paying and not only for being
+ *   paid.
+ *
  *   From anywhere else, on either network — pay from whatever wallet you like and hand back the
- *   transaction. This is the only route on Solana, because Vaulted has no Solana signing flow, and
- *   it is not a lesser one: the verification is identical.
+ *   transaction. It is not a lesser route: the verification is identical.
  *
  * The button never sets the status. `POST /verify` reads the transaction off the network and the
  * server decides; until it says so, this page says "checking", not "paid".
@@ -161,6 +167,7 @@ function PayControls({
 }) {
   const { address } = useAccount()
   const config = useVaultedConfig()
+  const { account } = useSession()
   const tx = useTransaction()
 
   const [reference, setReference] = useState('')
@@ -177,6 +184,17 @@ function PayControls({
     Boolean(config) &&
     config?.chain.name === request.networkName &&
     isAddress(request.recipientAddress)
+
+  /*
+    Solana in-app needs a Vaulted session, because the server builds the transaction from the
+    signed-in account's own wallet. Signed out, the page still works — it just falls back to
+    paying from elsewhere and pasting the signature, which anyone can do.
+  */
+  const canPaySolanaInApp =
+    request.networkFamily === 'svm' &&
+    Boolean(PRIVY_APP_ID) &&
+    Boolean(account) &&
+    account?.wallets.some((wallet) => wallet.chainKey === request.network)
 
   async function verify(candidate: string) {
     setChecking(true)
@@ -225,6 +243,22 @@ function PayControls({
 
   return (
     <div className="flex flex-col gap-4">
+      {canPaySolanaInApp && (
+        <>
+          <SolanaPayButton
+            requestId={request.id}
+            label={`Pay ${formatAmount(request.amount, request.decimals)} ${request.currency}`}
+            disabled={checking}
+            onSignature={verify}
+          />
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-[11px] text-muted-foreground">or pay from another wallet</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+        </>
+      )}
+
       {canPayInApp && (
         <>
           <TransactionStatus
@@ -283,7 +317,7 @@ function PayControls({
       {error && <Notice tone="danger">{error}</Notice>}
 
       <Button
-        variant={canPayInApp ? 'secondary' : 'primary'}
+        variant={canPayInApp || canPaySolanaInApp ? 'secondary' : 'primary'}
         size="lg"
         full
         busy={checking}

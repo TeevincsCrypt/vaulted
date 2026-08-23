@@ -11,6 +11,8 @@
  *   - PAID is reachable only through server-side verification
  *   - a transaction that pays someone else, or pays too little, moves nothing
  *   - cancelling belongs to the creator, and not after payment
+ *   - a request addressed to a handle reaches that account and nobody else
+ *   - hiring on a network with no escrow raises a real, verifiable payment for the budget
  *
  * Prerequisites: `npm run build`, and DATABASE_URL set (or in .env.local).
  * Run: npm run e2e:payments
@@ -21,7 +23,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import { encodeAbiParameters, keccak256, pad, toHex } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 import { PrismaClient } from '@prisma/client'
+import { jobAcceptMessage, jobApplicationMessage, jobCreationMessage } from '../lib/vaulted/messages.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
 for (const file of ['.env.local', '.env']) {
@@ -45,7 +49,12 @@ const SOL_PORT = APP_PORT + 2
 const APP = `http://127.0.0.1:${APP_PORT}`
 const AUTH_SECRET = 'e2e-auth-secret-that-is-comfortably-long-enough'
 
+const CREATOR_SIGNER = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d')
+// Anvil #3, kept clear of ATTACKER_EVM so the injection assertions above stay meaningful.
+const OTHER_SIGNER = privateKeyToAccount('0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6')
 const EVM_WALLET = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
+const OTHER_EVM_WALLET = '0x90F79bf6EB2c4f870365E785982E1f101E93b906'
+const OTHER_SOL_WALLET = '4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T'
 const SOL_WALLET = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
 const ATTACKER_EVM = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC'
 const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
@@ -236,7 +245,10 @@ try {
 
   // A clean slate, or the assertions below mean nothing.
   await prisma.paymentRequest.deleteMany({ where: { creator: { name: { in: ['prcreator', 'prother'] } } } })
-  await prisma.linkedWallet.deleteMany({ where: { address: { in: [EVM_WALLET, SOL_WALLET] } } })
+  await prisma.job.deleteMany({ where: { clientAddress: { in: [EVM_WALLET, OTHER_EVM_WALLET] } } })
+  await prisma.linkedWallet.deleteMany({
+    where: { address: { in: [EVM_WALLET, SOL_WALLET, OTHER_EVM_WALLET, OTHER_SOL_WALLET] } },
+  })
   await prisma.account.deleteMany({ where: { name: { in: ['prcreator', 'prother'] } } })
 
   const creator = await prisma.account.create({
@@ -255,7 +267,19 @@ try {
     },
   })
   const other = await prisma.account.create({
-    data: { name: 'prother', privyUserId: 'did:privy:pr-other', twitterId: 'pr-2' },
+    data: {
+      name: 'prother',
+      privyUserId: 'did:privy:pr-other',
+      twitterId: 'pr-2',
+      ownerAddress: OTHER_EVM_WALLET,
+      ownerChainKey: 'base',
+      addresses: {
+        create: [
+          { chainKey: 'base', address: OTHER_EVM_WALLET, provenance: 'PRIVY_EMBEDDED' },
+          { chainKey: 'solana', address: OTHER_SOL_WALLET, provenance: 'PRIVY_EMBEDDED' },
+        ],
+      },
+    },
   })
   const cookie = cookieFor(creator)
   const otherCookie = cookieFor(other)
@@ -404,6 +428,136 @@ try {
     'both production networks are offered')
   const otherList = await (await api('/api/payment-requests', { cookie: otherCookie })).json()
   assert(otherList.requests.length === 0, 'another account sees none of them')
+
+  step(11, 'a request can be addressed to a handle, and reaches only that account')
+  response = await api('/api/payment-requests', {
+    cookie,
+    method: 'POST',
+    body: {
+      network: 'solana',
+      amount: '2500000',
+      description: 'Illustration set',
+      toHandle: '@prother',
+    },
+  })
+  body = await response.json()
+  assert(response.ok, `addressed request created (${response.status})`)
+  const addressed = body.request
+  assert(addressed?.payerHandle === 'prother', `it records who is being asked (${addressed?.payerHandle})`)
+  assert(addressed?.recipientAddress === SOL_WALLET, 'and still pays the creator’s own Solana wallet')
+
+  const incoming = await (await api('/api/payment-requests', { cookie: otherCookie })).json()
+  assert(
+    incoming.incoming?.length === 1 && incoming.incoming[0].id === addressed.id,
+    `the addressee sees it in what they owe (${incoming.incoming?.length})`,
+  )
+  assert(incoming.incoming?.[0]?.recipientHandle === 'prcreator', 'and sees who is asking')
+  assert(incoming.requests?.length === 0, 'without it appearing among what they have asked for')
+
+  const creatorView = await (await api('/api/payment-requests', { cookie })).json()
+  assert(creatorView.incoming?.length === 0, 'and the creator is not asked to pay their own request')
+
+  assert(
+    (await api('/api/payment-requests', {
+      cookie,
+      method: 'POST',
+      body: { network: 'base', amount: '1000', description: 'To nobody', toHandle: 'ghost' },
+    })).status === 404,
+    'an unknown handle is refused',
+  )
+  assert(
+    (await api('/api/payment-requests', {
+      cookie,
+      method: 'POST',
+      body: { network: 'base', amount: '1000', description: 'To myself', toHandle: 'prcreator' },
+    })).status === 400,
+    'and so is addressing one to yourself',
+  )
+
+  step(12, 'hiring on a network with no escrow raises a real payment for the budget')
+  // The client is `other`; the worker is the creator, whose Solana wallet is the one that gets paid.
+  const jobId = 'job_e2ejobpay0000001'
+  const budget = '1000000'
+  let issuedAt = Math.floor(Date.now() / 1000)
+  let signature = await OTHER_SIGNER.signMessage({
+    message: jobCreationMessage({
+      jobId,
+      title: 'Solana landing page',
+      budgetAmount: budget,
+      chainKey: 'solana',
+      client: OTHER_EVM_WALLET,
+      issuedAt,
+    }),
+  })
+  response = await api('/api/jobs', {
+    cookie: otherCookie,
+    method: 'POST',
+    body: {
+      jobId,
+      title: 'Solana landing page',
+      description: 'A page, on the network the client actually holds money on.',
+      budgetAmount: budget,
+      chainKey: 'solana',
+      deadline: null,
+      protectionPeriod: 86400,
+      clientAddress: OTHER_EVM_WALLET,
+      issuedAt,
+      signature,
+    },
+  })
+  assert(response.ok, `a job posts on Solana even though it has no escrow (${response.status})`)
+
+  issuedAt = Math.floor(Date.now() / 1000)
+  signature = await CREATOR_SIGNER.signMessage({
+    message: jobApplicationMessage({ jobId, applicant: EVM_WALLET, issuedAt }),
+  })
+  response = await api(`/api/jobs/${jobId}/applications`, {
+    cookie,
+    method: 'POST',
+    body: { applicantAddress: EVM_WALLET, message: 'I build these.', issuedAt, signature },
+  })
+  assert(response.ok, `the worker applies (${response.status})`)
+
+  issuedAt = Math.floor(Date.now() / 1000)
+  signature = await OTHER_SIGNER.signMessage({
+    message: jobAcceptMessage({ jobId, applicant: EVM_WALLET, client: OTHER_EVM_WALLET, issuedAt }),
+  })
+  response = await api(`/api/jobs/${jobId}/accept`, {
+    cookie: otherCookie,
+    method: 'POST',
+    body: { applicantAddress: EVM_WALLET, clientAddress: OTHER_EVM_WALLET, issuedAt, signature },
+  })
+  assert(response.ok, `the client hires (${response.status})`)
+
+  const jobView = await (await api(`/api/jobs/${jobId}`)).json()
+  assert(jobView.escrowCapable === false, 'the job page is told the network cannot hold an escrow')
+  assert(jobView.payment?.amount === budget, `a payment for the budget exists (${jobView.payment?.amount})`)
+  assert(jobView.payment?.status === 'PENDING', 'and it is not paid merely by having been raised')
+
+  const jobPayment = await (await api(`/api/payment-requests/${jobView.payment.id}`)).json()
+  assert(jobPayment.request?.recipientAddress === SOL_WALLET, 'it pays the worker’s Solana wallet')
+  assert(jobPayment.request?.payerHandle === 'prother', 'and it is addressed to the client')
+  assert(jobPayment.request?.jobId === jobId, 'and it names the job it belongs to')
+
+  const clientOwes = await (await api('/api/payment-requests', { cookie: otherCookie })).json()
+  assert(
+    clientOwes.incoming?.some((entry) => entry.id === jobView.payment.id),
+    'the client is shown the budget among what they owe',
+  )
+
+  step(13, 'the job budget is still only paid by proving it on the network')
+  const badAttempt = await api(`/api/payment-requests/${jobView.payment.id}/verify`, {
+    method: 'POST',
+    body: { txHash: WRONG_SIG },
+  })
+  const badBody = await badAttempt.json()
+  assert(badAttempt.status === 202 && badBody.verified === false,
+    `an unrelated signature is answered but not accepted (${badAttempt.status})`)
+  const stillPending = await (await api(`/api/payment-requests/${jobView.payment.id}`)).json()
+  assert(stillPending.request?.status === 'PENDING', 'and the budget is still unpaid')
+
+  const afterFailedVerify = await (await api(`/api/jobs/${jobId}`)).json()
+  assert(afterFailedVerify.payment?.status === 'PENDING', 'the job page agrees it is unpaid')
 
   console.log(failures === 0 ? '\nAll payment request checks passed.\n' : `\n${failures} check(s) failed.\n`)
   if (failures > 0) console.log(appLog.join('').slice(-2500))

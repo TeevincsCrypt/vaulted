@@ -42,6 +42,9 @@ type PaymentRequest = {
   description: string
   status: 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED'
   recipientAddress: string
+  recipientHandle: string | null
+  payerHandle: string | null
+  jobId: string | null
   txHash: string | null
   paidAmount: string | null
   paidAt: string | null
@@ -84,6 +87,7 @@ export function shortForFamily(address: string, family: 'evm' | 'svm'): string {
 
 export function PaymentRequests() {
   const [requests, setRequests] = useState<PaymentRequest[] | null>(null)
+  const [incoming, setIncoming] = useState<PaymentRequest[]>([])
   const [networks, setNetworks] = useState<Network[]>([])
   const [error, setError] = useState<string | null>(null)
   const [signedOut, setSignedOut] = useState(false)
@@ -101,6 +105,7 @@ export function PaymentRequests() {
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Could not load your payment requests.')
       setRequests(body.requests ?? [])
+      setIncoming(body.incoming ?? [])
       setNetworks(body.networks ?? [])
     } catch (cause) {
       setRequests([])
@@ -155,6 +160,16 @@ export function PaymentRequests() {
         <CreateForm networks={networks} onCreated={load} />
 
         <div className="flex flex-col gap-4">
+          {incoming.length > 0 && (
+            <>
+              <Eyebrow>Asked of you</Eyebrow>
+              {incoming.map((request) => (
+                <IncomingRow key={request.id} request={request} />
+              ))}
+              <Divider className="my-2" />
+            </>
+          )}
+
           <Eyebrow>Your requests</Eyebrow>
           {requests === null ? (
             <>
@@ -186,6 +201,7 @@ function CreateForm({ networks, onCreated }: { networks: Network[]; onCreated: (
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [expiry, setExpiry] = useState('')
+  const [toHandle, setToHandle] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<PaymentRequest | null>(null)
@@ -212,6 +228,7 @@ function CreateForm({ networks, onCreated }: { networks: Network[]; onCreated: (
           amount: parsed.toString(),
           description: description.trim(),
           expiresInHours: expiry ? Number(expiry) : null,
+          toHandle: toHandle.trim() || null,
         }),
       })
       const body = await response.json()
@@ -219,6 +236,7 @@ function CreateForm({ networks, onCreated }: { networks: Network[]; onCreated: (
       setCreated(body.request)
       setAmount('')
       setDescription('')
+      setToHandle('')
       await onCreated()
     } catch (cause) {
       setError(readableError(cause))
@@ -288,6 +306,19 @@ function CreateForm({ networks, onCreated }: { networks: Network[]; onCreated: (
             value={description}
             maxLength={500}
             onChange={(event) => setDescription(event.target.value)}
+          />
+        </Field>
+
+        <Field
+          label="From (optional)"
+          hint="A Vaulted @handle. It lands in their list of what they owe. Leave blank for an open link anyone can pay."
+        >
+          <input
+            className={inputClass}
+            placeholder="@handle"
+            value={toHandle}
+            spellCheck={false}
+            onChange={(event) => setToHandle(event.target.value)}
           />
         </Field>
 
@@ -368,7 +399,9 @@ function RequestRow({ request, onChanged }: { request: PaymentRequest; onChanged
           </p>
           <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">{request.description}</p>
           <p className="mt-1 text-[11.5px] text-muted-foreground">
-            {request.networkName} · to {shortForFamily(request.recipientAddress, request.networkFamily)}
+            {request.networkName}
+            {request.payerHandle ? ` · from @${request.payerHandle}` : ' · open link'}
+            {request.jobId ? ' · job budget' : ''}
           </p>
         </div>
         <StatusChip status={request.status} />
@@ -416,6 +449,45 @@ function RequestRow({ request, onChanged }: { request: PaymentRequest; onChanged
           </Button>
         )}
       </div>
+    </Card>
+  )
+}
+
+/**
+ * A payment somebody has addressed to you.
+ *
+ * Read-only here: paying happens on the link, where the verification lives. A job budget is
+ * flagged, because paying one is not escrow — the money is theirs immediately.
+ */
+function IncomingRow({ request }: { request: PaymentRequest }) {
+  return (
+    <Card className="p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Eyebrow>
+            {request.recipientHandle ? `@${request.recipientHandle}` : 'Someone'} is asking you for
+          </Eyebrow>
+          <p className="mt-1.5 text-[20px] font-semibold tracking-tight">
+            {formatAmount(request.amount, request.decimals)} {request.currency}
+          </p>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">{request.description}</p>
+          <p className="mt-1 text-[11.5px] text-muted-foreground">
+            {request.networkName}
+            {request.jobId ? ' · job budget, paid directly — not escrow' : ''}
+          </p>
+        </div>
+        <StatusChip status={request.status} />
+      </div>
+
+      {request.status === 'PENDING' && (
+        <Link
+          href={`/pay/${request.id}`}
+          className="mt-4 inline-flex h-11 items-center gap-2 rounded-xl px-5 text-[14px] font-semibold text-[#08080a] transition-transform hover:-translate-y-0.5"
+          style={{ background: 'var(--vt-accent)' }}
+        >
+          Pay {formatAmount(request.amount, request.decimals)} {request.currency}
+        </Link>
+      )}
     </Card>
   )
 }

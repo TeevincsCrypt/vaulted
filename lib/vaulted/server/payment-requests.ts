@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { getChain, paymentChains, type VaultedChain } from '../registry'
 import { isSolanaAddress, isSolanaSignature } from '../solana'
 import { ApiError } from './auth'
-import { requireAccount } from './accounts'
+import { accountByHandle, requireAccount } from './accounts'
 import { serverRpcUrl } from './rpc'
 import { verifyPayment } from './verify-payment'
 
@@ -67,6 +67,10 @@ export type PublicPaymentRequest = {
   status: PaymentRequestStatus
   recipientAddress: string
   recipientHandle: string | null
+  /** Set when the request is addressed to a Vaulted account rather than being an open link. */
+  payerHandle: string | null
+  /** Set when this payment is a job's budget, paid directly because the network has no escrow. */
+  jobId: string | null
   txHash: string | null
   paidAmount: string | null
   paidAt: string | null
@@ -106,6 +110,8 @@ function serialise(
     description: string
     status: string
     recipientAddress: string
+    payerAccountId?: string | null
+    jobId?: string | null
     txHash: string | null
     paidAmount: string | null
     paidAt: Date | null
@@ -113,6 +119,7 @@ function serialise(
     createdAt: Date
   },
   recipientHandle: string | null,
+  payerHandle: string | null = null,
 ): PublicPaymentRequest {
   const chain = getChain(row.network)
   return {
@@ -127,6 +134,8 @@ function serialise(
     status: effectiveStatus(row),
     recipientAddress: row.recipientAddress,
     recipientHandle,
+    payerHandle,
+    jobId: row.jobId ?? null,
     txHash: row.txHash,
     paidAmount: row.paidAmount,
     paidAt: row.paidAt?.toISOString() ?? null,
@@ -154,6 +163,8 @@ export async function createPaymentRequest(input: {
   description: string
   /** Hours until it expires. Omitted means it never does. */
   expiresInHours?: number | null
+  /** Optional `@handle` to address it to, so it lands in that person's list of what they owe. */
+  toHandle?: string | null
 }): Promise<PublicPaymentRequest> {
   const account = await requireAccount()
   const chain = chainOrThrow(input.network)
@@ -191,6 +202,24 @@ export async function createPaymentRequest(input: {
     )
   }
 
+  /*
+    Addressing it to somebody is a lookup, not a free-text field: the handle has to resolve to a
+    real account, and it cannot be your own — a request to yourself would sit in your own list of
+    debts forever. An unaddressed request stays an open link, which is still the default.
+  */
+  let payerAccountId: string | null = null
+  let payerHandle: string | null = null
+  const wanted = input.toHandle?.trim().replace(/^@/, '')
+  if (wanted) {
+    const payer = await accountByHandle(wanted)
+    if (!payer) throw new PaymentRequestError(`No Vaulted account called @${wanted}.`, 404)
+    if (payer.id === account.id) {
+      throw new PaymentRequestError('You cannot address a payment request to yourself.', 400)
+    }
+    payerAccountId = payer.id
+    payerHandle = payer.name
+  }
+
   const expiresAt =
     input.expiresInHours && input.expiresInHours > 0
       ? new Date(Date.now() + input.expiresInHours * 60 * 60 * 1000)
@@ -205,11 +234,29 @@ export async function createPaymentRequest(input: {
       network: chain.key,
       description,
       recipientAddress,
+      payerAccountId,
       expiresAt,
     },
   })
 
-  return serialise(row, account.name)
+  return serialise(row, account.name, payerHandle)
+}
+
+/**
+ * What this account has been asked to pay.
+ *
+ * The mirror of {@link listPaymentRequests}. Only requests explicitly addressed to them appear —
+ * an open link has no addressee and belongs in nobody's list of debts.
+ */
+export async function listIncomingPaymentRequests(): Promise<PublicPaymentRequest[]> {
+  const account = await requireAccount()
+  const rows = await prisma.paymentRequest.findMany({
+    where: { payerAccountId: account.id },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+    include: { creator: { select: { name: true } } },
+  })
+  return rows.map((row) => serialise(row, row.creator.name, account.name))
 }
 
 /** Everything the signed-in account has asked for. */
@@ -219,8 +266,9 @@ export async function listPaymentRequests(): Promise<PublicPaymentRequest[]> {
     where: { creatorId: account.id },
     orderBy: { createdAt: 'desc' },
     take: 100,
+    include: { payer: { select: { name: true } } },
   })
-  return rows.map((row) => serialise(row, account.name))
+  return rows.map((row) => serialise(row, account.name, row.payer?.name ?? null))
 }
 
 /** Public: this is what a payment link resolves to, and it has to work signed out. */
@@ -228,9 +276,9 @@ export async function getPaymentRequest(id: string): Promise<PublicPaymentReques
   if (!isPaymentRequestId(id)) return null
   const row = await prisma.paymentRequest.findUnique({
     where: { id },
-    include: { creator: { select: { name: true } } },
+    include: { creator: { select: { name: true } }, payer: { select: { name: true } } },
   })
-  return row ? serialise(row, row.creator.name) : null
+  return row ? serialise(row, row.creator.name, row.payer?.name ?? null) : null
 }
 
 /**
@@ -331,6 +379,58 @@ export async function cancelPaymentRequest(id: string): Promise<PublicPaymentReq
     data: { status: 'CANCELLED' },
   })
   return serialise(updated, account.name)
+}
+
+/**
+ * The payment request that stands in for a job's budget where escrow cannot.
+ *
+ * On a network with no VaultedEscrow — Solana today, Base until it is deployed — there is nothing
+ * to hold the money, so the alternative to "no jobs at all" is an honest direct payment: the client
+ * pays the worker, the server verifies it, and the job is funded. What it is *not* is escrow, and
+ * every surface that shows it says so. The money is the worker's the moment it lands.
+ *
+ * Called from the hire step, so the creator is the worker being paid and the payer is the client —
+ * neither is taken from a request body.
+ */
+export async function createJobPaymentRequest(input: {
+  jobId: string
+  network: string
+  amount: string
+  description: string
+  workerAccountId: string
+  clientAccountId: string
+}): Promise<PublicPaymentRequest | null> {
+  const chain = getChain(input.network)
+  if (!chain?.capabilities.transfer || !chain.token) return null
+
+  const existing = await prisma.paymentRequest.findUnique({ where: { jobId: input.jobId } })
+  if (existing) return serialise(existing, null)
+
+  const wallet = await prisma.linkedWallet.findUnique({
+    where: { usernameId_chainKey: { usernameId: input.workerAccountId, chainKey: chain.key } },
+  })
+  if (!wallet?.address) {
+    throw new PaymentRequestError(
+      `The person you hired has no ${chain.name} wallet recorded, so there is nowhere to send the ` +
+        'budget. Ask them to sign in again.',
+      409,
+    )
+  }
+
+  const row = await prisma.paymentRequest.create({
+    data: {
+      id: generatePaymentRequestId(),
+      creatorId: input.workerAccountId,
+      payerAccountId: input.clientAccountId,
+      jobId: input.jobId,
+      amount: input.amount,
+      currency: chain.token.symbol,
+      network: chain.key,
+      description: input.description,
+      recipientAddress: wallet.address,
+    },
+  })
+  return serialise(row, null)
 }
 
 /** Networks a payment request can be raised on, for the create form. */

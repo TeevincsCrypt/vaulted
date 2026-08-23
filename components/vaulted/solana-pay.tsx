@@ -1,0 +1,268 @@
+'use client'
+
+import { useState } from 'react'
+import { Wallet } from 'lucide-react'
+import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana'
+import { readableError } from '@/lib/vaulted/client'
+import { formatAmountExact, parseAmount } from '@/lib/vaulted/format'
+import { base58Encode, isSolanaAddress } from '@/lib/vaulted/solana'
+import { Button, Divider, Eyebrow, Field, Notice, inputClass } from './primitives'
+
+/**
+ * Spending from the Solana wallet Vaulted assigns.
+ *
+ * Before this, Solana was receive-only: the address was shown and the money had to be moved from
+ * somewhere else, which is not much use when it is sitting in the wallet Vaulted itself created.
+ *
+ * The signing key still lives with Privy and the user, split so that neither Privy alone nor
+ * Vaulted — which holds no share at all — can sign. These components ask the user to approve a
+ * transaction; they cannot produce one without them.
+ *
+ * The transaction is always built on the server, from state the browser cannot influence: the
+ * payer is the session's own recorded wallet, and for a payment request the recipient and amount
+ * come from the stored row. This file chooses none of those. It is handed bytes, it shows them to
+ * the wallet, and it reports back the signature.
+ *
+ * A signature is not a payment, and nothing here says it is. It is handed to the caller, whose job
+ * is to have the server read it back off the network before anything is called paid.
+ */
+
+type Phase = 'idle' | 'building' | 'signing' | 'verifying'
+
+function useSolanaSend() {
+  const { ready, wallets } = useWallets()
+  const { signAndSendTransaction } = useSignAndSendTransaction()
+
+  return {
+    available: ready && wallets.length > 0,
+    /**
+     * Asks `endpoint` for an unsigned transaction, has the user sign and send it, and returns the
+     * base58 signature.
+     */
+    async send(endpoint: string, payload: Record<string, unknown>): Promise<string> {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error ?? 'Could not build the transaction.')
+
+      /*
+        The signer is matched to the wallet the server built for, never picked here. If some other
+        Solana wallet is loaded in this browser, signing with it would fail — and the failure would
+        be far less clear than saying so.
+      */
+      const wallet = wallets.find((entry) => entry.address === body.payer)
+      if (!wallet) {
+        throw new Error(
+          'The wallet recorded for your account is not loaded in this browser. Sign out and back ' +
+            'in, then try again.',
+        )
+      }
+
+      const bytes = Uint8Array.from(atob(body.transaction as string), (character) =>
+        character.charCodeAt(0),
+      )
+      /*
+        Only a shape check. Parsing the transaction here to inspect it would mean shipping a Solana
+        SDK to every visitor for a reassurance it cannot really give — the browser cannot vouch for
+        a transaction it did not build. What actually protects the user is the wallet's own
+        approval screen, which shows them the transfer before they sign it.
+      */
+      if (bytes.length === 0 || bytes.length > 1232) {
+        throw new Error('The server returned a transaction Solana would not accept.')
+      }
+
+      const { signature } = await signAndSendTransaction({ transaction: bytes, wallet })
+      return base58Encode(signature)
+    },
+  }
+}
+
+function phaseLabel(phase: Phase, idle: string): string {
+  if (phase === 'building') return 'Preparing the transaction'
+  if (phase === 'signing') return 'Waiting for your approval'
+  if (phase === 'verifying') return 'Checking it against Solana'
+  return idle
+}
+
+/** Pays a Solana payment request from the account's own wallet. */
+export function SolanaPayButton({
+  requestId,
+  label,
+  onSignature,
+  disabled,
+}: {
+  requestId: string
+  label: string
+  /** Called with the base58 signature. Verification is the caller's to do. */
+  onSignature: (signature: string) => Promise<void> | void
+  disabled?: boolean
+}) {
+  const { available, send } = useSolanaSend()
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  if (!available) return null
+
+  async function pay() {
+    setError(null)
+    try {
+      setPhase('building')
+      const signature = await send('/api/solana/transfer', { requestId })
+      setPhase('verifying')
+      await onSignature(signature)
+    } catch (cause) {
+      setError(readableError(cause))
+    } finally {
+      setPhase('idle')
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {error && <Notice tone="danger">{error}</Notice>}
+      <Button size="lg" full busy={phase !== 'idle'} disabled={disabled || phase !== 'idle'} onClick={pay}>
+        <Wallet size={16} />
+        {phaseLabel(phase, label)}
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * Moving USDC out of the Solana wallet to an address of the user's choosing.
+ *
+ * The destination is theirs to pick and there is no undo, so the address is shown back in full
+ * before the button is offered — a truncated one hides exactly the characters a typo lives in.
+ */
+export function SolanaWithdraw({
+  symbol,
+  decimals,
+  available,
+  onSent,
+}: {
+  symbol: string
+  decimals: number
+  /** Base units currently held, so an over-send is caught before the network rejects it. */
+  available: string | null
+  onSent: () => void
+}) {
+  const { available: canSign, send } = useSolanaSend()
+  const [to, setTo] = useState('')
+  const [amount, setAmount] = useState('')
+  const [phase, setPhase] = useState<Phase>('idle')
+  const [error, setError] = useState<string | null>(null)
+  const [signature, setSignature] = useState<string | null>(null)
+
+  const destinationValid = isSolanaAddress(to.trim())
+  const base = parseAmount(amount, decimals)
+  const tooMuch = base !== null && available !== null && base > BigInt(available)
+
+  if (!canSign) {
+    return (
+      <>
+        <Divider className="my-5" />
+        <Eyebrow>Sending out</Eyebrow>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+          Your Solana wallet has not loaded in this browser yet. Reload the page; if it stays this
+          way, sign out and back in.
+        </p>
+      </>
+    )
+  }
+
+  async function withdraw() {
+    if (!destinationValid || !base || tooMuch) return
+    setError(null)
+    setSignature(null)
+    try {
+      setPhase('building')
+      const result = await send('/api/solana/withdraw', {
+        to: to.trim(),
+        amount: base.toString(),
+      })
+      setSignature(result)
+      setAmount('')
+      onSent()
+    } catch (cause) {
+      setError(readableError(cause))
+    } finally {
+      setPhase('idle')
+    }
+  }
+
+  return (
+    <>
+      <Divider className="my-5" />
+      <Eyebrow>Sending out</Eyebrow>
+      <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+        Straight from this wallet to any Solana address. You approve it; Vaulted cannot sign for
+        you, and there is no way to reverse it once it is sent.
+      </p>
+
+      <div className="mt-4 flex flex-col gap-4">
+        <Field
+          label="Destination address"
+          error={to.trim() && !destinationValid ? 'That is not a Solana address.' : null}
+        >
+          <input
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+            spellCheck={false}
+            placeholder="Solana address"
+            className={`${inputClass} font-mono text-[12.5px]`}
+            disabled={phase !== 'idle'}
+          />
+        </Field>
+
+        <Field
+          label={`Amount (${symbol})`}
+          hint={
+            available !== null
+              ? `${formatAmountExact(BigInt(available), decimals)} ${symbol} available`
+              : undefined
+          }
+          error={
+            amount && !base
+              ? 'Enter an amount greater than zero.'
+              : tooMuch
+                ? 'That is more than this wallet holds.'
+                : null
+          }
+        >
+          <input
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            inputMode="decimal"
+            placeholder="0.00"
+            className={`${inputClass} vt-numeric`}
+            disabled={phase !== 'idle'}
+          />
+        </Field>
+      </div>
+
+      {error && <div className="mt-4"><Notice tone="danger">{error}</Notice></div>}
+      {signature && (
+        <div className="mt-4">
+          <Notice tone="good" title="Sent">
+            Solana accepted the transaction.
+            <span className="mt-1 block break-all font-mono text-[11.5px]">{signature}</span>
+          </Notice>
+        </div>
+      )}
+
+      <div className="mt-5">
+        <Button
+          full
+          busy={phase !== 'idle'}
+          disabled={!destinationValid || !base || tooMuch || phase !== 'idle'}
+          onClick={withdraw}
+        >
+          {phaseLabel(phase, `Send ${symbol}`)}
+        </Button>
+      </div>
+    </>
+  )
+}

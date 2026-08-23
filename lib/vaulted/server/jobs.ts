@@ -6,7 +6,10 @@ import {
   jobCreationMessage,
   workSubmissionMessage,
 } from '../messages'
+import { getChain } from '../registry'
+import { accountForAddress } from './accounts'
 import { ApiError, requireSigner, requireTransactableChain } from './auth'
+import { createJobPaymentRequest } from './payment-requests'
 import {
   notifyApplicationReceived,
   notifyDeclined,
@@ -60,9 +63,13 @@ export async function createJob(input: {
 }) {
   if (!JOB_ID_PATTERN.test(input.jobId)) throw new ApiError('Invalid job id.', 400)
 
-  // Refuses a chain with no deployed escrow, so a job can never promise payment on one.
+  /*
+    Posting moves no money, so the bar is a token to denominate the budget in, not a deployed
+    escrow. How the budget is eventually secured — escrow where the contract exists, a verified
+    direct payment where it does not — is settled at the hire step, not here.
+  */
   const chain = requireTransactableChain(input.chainKey)
-  if (!chain.token) throw new ApiError(`${chain.name} has no escrow token recorded.`, 409)
+  if (!chain.token) throw new ApiError(`${chain.name} has no token recorded, so a budget cannot be denominated.`, 409)
 
   const title = input.title.trim()
   const description = input.description.trim()
@@ -78,7 +85,7 @@ export async function createJob(input: {
     throw new ApiError('Budget must be an integer string in token base units.', 400)
   }
   if (budget <= BigInt(0)) throw new ApiError('Budget must be greater than zero.', 400)
-  if (budget > MAX_BUDGET) throw new ApiError('Budget exceeds what the escrow can hold.', 400)
+  if (budget > MAX_BUDGET) throw new ApiError('That budget is larger than Vaulted will record.', 400)
 
   const protectionPeriod = Number(input.protectionPeriod)
   if (protectionPeriod < 3600 || protectionPeriod > 365 * 24 * 3600) {
@@ -219,6 +226,31 @@ export async function acceptApplicant(input: {
     }),
   ])
 
+  /*
+    Where the network cannot hold an escrow, hiring raises a direct payment for the budget instead
+    of leaving the job with no way to be funded at all. It is not escrow and is never described as
+    such: the money is the worker's the moment it lands. Where escrow *is* available the worker
+    raises one as before, and nothing here runs.
+  */
+  const chain = getChain(job.chainKey)
+  if (chain && !chain.capabilities.escrow) {
+    const worker = await accountForAddress(application.applicantAddress)
+    const clientAccount = await accountForAddress(job.clientAddress)
+    if (worker && clientAccount) {
+      await createJobPaymentRequest({
+        jobId: job.id,
+        network: job.chainKey,
+        amount: job.budgetAmount,
+        description: `Budget for “${job.title}”`,
+        workerAccountId: worker.id,
+        clientAccountId: clientAccount.id,
+      }).catch((error) => {
+        // Hiring already happened and is recorded; a failure to raise the payment must not undo it.
+        console.error('[vaulted/jobs job payment]', error)
+      })
+    }
+  }
+
   await notifyHired(job, application.applicantAddress)
 
   const declined = await prisma.jobApplication.findMany({
@@ -285,7 +317,12 @@ export async function getJob(jobId: string) {
   if (!JOB_ID_PATTERN.test(jobId)) return null
   return prisma.job.findUnique({
     where: { id: jobId },
-    include: { applications: { orderBy: { createdAt: 'desc' } }, invoice: true },
+    include: {
+      applications: { orderBy: { createdAt: 'desc' } },
+      invoice: true,
+      // Present only on a network with no escrow, where hiring raises a direct payment instead.
+      paymentRequest: true,
+    },
   })
 }
 

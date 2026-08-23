@@ -45,6 +45,40 @@ export function base58Decode(value: string): Uint8Array | null {
   return new Uint8Array(bytes.reverse())
 }
 
+/**
+ * Encodes bytes as base58.
+ *
+ * The inverse of {@link base58Decode}, and needed for exactly one thing: a wallet hands back a
+ * transaction signature as 64 raw bytes, and every explorer, RPC and human on Solana wants it as
+ * base58. Getting this wrong would mean submitting a signature the network has never heard of.
+ */
+export function base58Encode(bytes: Uint8Array): string {
+  if (bytes.length === 0) return ''
+
+  const digits: number[] = []
+  for (const byte of bytes) {
+    let carry = byte
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i] << 8
+      digits[i] = carry % 58
+      carry = (carry / 58) | 0
+    }
+    while (carry > 0) {
+      digits.push(carry % 58)
+      carry = (carry / 58) | 0
+    }
+  }
+
+  // Every leading zero byte is a leading '1', and contributes no digits of its own.
+  let leading = ''
+  for (const byte of bytes) {
+    if (byte !== 0) break
+    leading += '1'
+  }
+
+  return leading + digits.reverse().map((digit) => BASE58_ALPHABET[digit]).join('')
+}
+
 /** True for a well-formed Solana address: 32 bytes of base58. */
 export function isSolanaAddress(value: string | null | undefined): value is string {
   if (typeof value !== 'string') return false

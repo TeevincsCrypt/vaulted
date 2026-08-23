@@ -7,7 +7,8 @@ import { useAccount, useSignMessage } from 'wagmi'
 import { readableError } from '@/lib/vaulted/client'
 import { formatAmount, formatTimestamp, parseAmount, PROTECTION_PERIOD_PRESETS, shortAddress } from '@/lib/vaulted/format'
 import { jobAcceptMessage, jobApplicationMessage, jobCreationMessage } from '@/lib/vaulted/messages'
-import { defaultChain, getChain } from '@/lib/vaulted/registry'
+import { defaultChain, defaultPaymentChain, getChain, paymentChains } from '@/lib/vaulted/registry'
+import { ChainSelector } from './chain-selector'
 import { AddressChip, Button, Card, Divider, Eyebrow, Field, Notice, Skeleton, inputClass } from './primitives'
 import { AppShell } from './shell'
 import { SignInButton } from './wallet'
@@ -36,6 +37,15 @@ type Job = {
   invoiceId: string | null
   escrowId: string | null
   createdAt: string
+}
+
+/** The direct payment that stands in for escrow where the network cannot hold one. */
+type JobPayment = {
+  id: string
+  amount: string
+  currency: string
+  status: 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED'
+  paidAt: string | null
 }
 
 type Application = {
@@ -159,7 +169,18 @@ export function JobsBoard() {
 function PostJob({ onPosted }: { onPosted: () => void }) {
   const { address, isConnected } = useAccount()
   const { signMessageAsync } = useSignMessage()
-  const chain = defaultChain()
+
+  /*
+    The budget has to be denominated in the network the client actually holds money on, so the
+    network is picked rather than assumed. The default is a network with escrow where one exists,
+    because a held budget is the better deal for both sides; where none does, any network that can
+    move the token will do, since posting itself moves nothing.
+  */
+  const networks = paymentChains()
+  const [chainKey, setChainKey] = useState<string | null>(
+    () => (defaultChain() ?? defaultPaymentChain())?.key ?? null,
+  )
+  const chain = chainKey ? getChain(chainKey) : null
 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -219,7 +240,11 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
   }
 
   if (!chain) {
-    return <Notice tone="warn">No network has a deployed escrow, so a job cannot be posted yet.</Notice>
+    return (
+      <Notice tone="warn">
+        This deployment has no network with a token, so a budget cannot be denominated yet.
+      </Notice>
+    )
   }
 
   return (
@@ -227,10 +252,23 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
       <Eyebrow>New job</Eyebrow>
       <h2 className="vt-display mt-2 text-xl">Post work with a budget</h2>
       <p className="mt-1.5 text-sm text-muted-foreground">
-        Posting is a signature, not a payment. You fund the escrow once you accept an applicant.
+        Posting is a signature, not a payment. You fund the budget once you accept an applicant —
+        into escrow where the network has one, and by direct payment where it does not.
       </p>
 
       <div className="mt-6 flex flex-col gap-4">
+        {networks.length > 1 && (
+          <Field label="Network" hint="Where the budget will be paid. Pick the one you hold funds on.">
+            <ChainSelector value={chainKey} onChange={setChainKey} capability="transfer" />
+          </Field>
+        )}
+        {!chain.capabilities.escrow && (
+          <Notice tone="warn">
+            {chain.name} has no escrow contract in this deployment, so a budget posted here is paid
+            directly to whoever you hire rather than being held. The payment is still verified
+            against the network before Vaulted calls it paid, but there is nothing to claw back.
+          </Notice>
+        )}
         <Field label="Title">
           <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="Build Landing Page" className={inputClass} disabled={busy} />
         </Field>
@@ -240,23 +278,30 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
         <Field label={`Budget (${chain.token?.symbol ?? 'token'})`} error={budget && !amount ? 'Enter an amount greater than zero.' : null}>
           <input value={budget} onChange={(e) => setBudget(e.target.value)} inputMode="decimal" placeholder="500.00" className={`${inputClass} vt-numeric`} disabled={busy} />
         </Field>
-        <Field label="Protection window" hint="Applied to the escrow once it is funded.">
-          <div className="flex flex-wrap gap-2">
-            {PROTECTION_PERIOD_PRESETS.map((preset) => (
-              <button
-                key={preset.seconds}
-                type="button"
-                disabled={busy}
-                onClick={() => setProtectionPeriod(preset.seconds)}
-                className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
-                  protectionPeriod === preset.seconds ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]' : 'border-border hover:bg-muted'
-                }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-        </Field>
+        {/*
+          The protection window is a property of an escrow, so it is only asked for where one can
+          exist. Offering it on a network with no contract would be asking for a setting that
+          nothing would ever read.
+        */}
+        {chain.capabilities.escrow && (
+          <Field label="Protection window" hint="Applied to the escrow once it is funded.">
+            <div className="flex flex-wrap gap-2">
+              {PROTECTION_PERIOD_PRESETS.map((preset) => (
+                <button
+                  key={preset.seconds}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setProtectionPeriod(preset.seconds)}
+                  className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
+                    protectionPeriod === preset.seconds ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]' : 'border-border hover:bg-muted'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
         <Field label="Deadline (days)" optional>
           <input value={deadlineDays} onChange={(e) => setDeadlineDays(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" placeholder="No deadline" className={`${inputClass} vt-numeric`} disabled={busy} />
         </Field>
@@ -283,6 +328,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
   const { signMessageAsync } = useSignMessage()
   const [job, setJob] = useState<Job | null>(null)
   const [applications, setApplications] = useState<Application[]>([])
+  const [payment, setPayment] = useState<JobPayment | null>(null)
+  const [escrowCapable, setEscrowCapable] = useState(true)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -298,6 +345,8 @@ export function JobDetail({ jobId }: { jobId: string }) {
     const body = await response.json()
     setJob(body.job)
     setApplications(body.applications ?? [])
+    setPayment(body.payment ?? null)
+    setEscrowCapable(Boolean(body.escrowCapable))
     setLoading(false)
   }, [jobId])
 
@@ -405,7 +454,9 @@ export function JobDetail({ jobId }: { jobId: string }) {
           budget is not secured rather than implying it is.
         */}
         <div className="mt-5">
-          {job.status === 'ASSIGNED' &&
+          {!escrowCapable ? (
+            <JobDirectPayment job={job} payment={payment} isClient={isClient} />
+          ) : job.status === 'ASSIGNED' &&
           !job.invoiceId &&
           address &&
           job.assignedTo?.toLowerCase() === address.toLowerCase() ? (
@@ -442,6 +493,7 @@ export function JobDetail({ jobId }: { jobId: string }) {
             </Notice>
           )}
         </div>
+
 
         {error && <div className="mt-4"><Notice tone="danger">{error}</Notice></div>}
 
@@ -514,6 +566,78 @@ export function JobDetail({ jobId }: { jobId: string }) {
         </Card>
       )}
     </AppShell>
+  )
+}
+
+/**
+ * The budget on a network with no escrow contract.
+ *
+ * Nothing is held. The client pays the freelancer directly, the server verifies the transaction
+ * against the network before it says a word about it being paid, and the money is the
+ * freelancer's the moment it lands. Every string here says that rather than implying escrow.
+ */
+function JobDirectPayment({
+  job,
+  payment,
+  isClient,
+}: {
+  job: Job
+  payment: JobPayment | null
+  isClient: boolean
+}) {
+  if (job.status !== 'ASSIGNED') {
+    return (
+      <Notice tone="neutral" icon={<Clock size={15} />}>
+        {getChain(job.chainKey)?.name ?? job.chainKey} has no escrow contract in this deployment, so
+        this budget is paid directly to whoever is hired rather than being held by a contract. It is
+        raised as a payment request the moment you hire somebody.
+      </Notice>
+    )
+  }
+
+  if (!payment) {
+    return (
+      <Notice tone="warn" icon={<Clock size={15} />}>
+        Somebody is hired, but no payment has been raised for the budget yet. Reload in a moment; if
+        it does not appear, the freelancer may have no{' '}
+        {getChain(job.chainKey)?.name ?? job.chainKey} wallet recorded yet.
+      </Notice>
+    )
+  }
+
+  if (payment.status === 'PAID') {
+    return (
+      <Notice tone="good" icon={<ShieldCheck size={15} />}>
+        The budget was paid directly to the freelancer and the transaction was read back off the
+        network.{' '}
+        <Link href={`/pay/${payment.id}`} className="underline">
+          See the receipt
+        </Link>
+      </Notice>
+    )
+  }
+
+  if (payment.status === 'CANCELLED' || payment.status === 'EXPIRED') {
+    return (
+      <Notice tone="warn" icon={<Clock size={15} />}>
+        The payment raised for this budget is {payment.status.toLowerCase()}, so the budget is
+        unpaid.
+      </Notice>
+    )
+  }
+
+  return (
+    <Notice
+      tone="neutral"
+      title={isClient ? 'Pay the budget' : 'Waiting on the client to pay'}
+      icon={<Clock size={15} />}
+    >
+      This network has no escrow contract, so nothing is held: the budget is paid straight to the
+      freelancer and is theirs as soon as it arrives.{' '}
+      <Link href={`/pay/${payment.id}`} className="underline">
+        {isClient ? `Pay ${formatAmount(payment.amount, job.token.decimals)} ${payment.currency}` : 'Open the payment'}
+      </Link>
+    </Notice>
   )
 }
 

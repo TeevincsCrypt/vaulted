@@ -8,24 +8,35 @@ import { availabilityLabel, VAULTED_CHAINS, type VaultedChain } from '@/lib/vaul
  * Network picker.
  *
  * Every row's state comes from the registry, which derives availability from whether a deployment
- * record exists. A chain that is not live is rendered disabled and cannot be selected — the UI has
- * no way to put the app into a state where it would try to transact on a chain with no contract.
+ * record exists. A chain the caller's job cannot be done on is rendered disabled and cannot be
+ * selected — the UI has no way to put the app into a state the chain would reject.
+ *
+ * What counts as selectable depends on what is being picked for. `escrow` is the strict reading:
+ * only a chain with a deployed contract. `transfer` is the one for anything that just moves a
+ * token — a payment link, a job budget — and it includes networks like Solana that can plainly
+ * send USDC today but hold no escrow.
  */
 export function ChainSelector({
   value,
   onChange,
+  capability = 'escrow',
   className = '',
 }: {
   value: string | null
   onChange?: (chainKey: string) => void
+  /** What the selected chain has to be able to do. Defaults to the strict escrow reading. */
+  capability?: 'escrow' | 'transfer'
   className?: string
 }) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
 
+  const usable = (chain: VaultedChain) =>
+    capability === 'escrow' ? chain.capabilities.escrow : chain.capabilities.transfer
+
   const selected = VAULTED_CHAINS.find((chain) => chain.key === value) ?? null
-  const live = VAULTED_CHAINS.filter((chain) => chain.availability === 'live')
-  const planned = VAULTED_CHAINS.filter((chain) => chain.availability !== 'live')
+  const live = VAULTED_CHAINS.filter(usable)
+  const planned = VAULTED_CHAINS.filter((chain) => !usable(chain))
 
   useEffect(() => {
     if (!open) return
@@ -51,7 +62,7 @@ export function ChainSelector({
         aria-expanded={open}
       >
         <span className="flex min-w-0 items-center gap-2.5">
-          <Dot live={Boolean(selected && selected.availability === 'live')} />
+          <Dot live={Boolean(selected && usable(selected))} />
           <span className="truncate font-medium">{selected ? selected.shortName : 'Select network'}</span>
           {selected && (
             <span className="shrink-0 text-[11px] text-muted-foreground">{availabilityLabel(selected)}</span>
@@ -68,13 +79,16 @@ export function ChainSelector({
           <Group label="Available">
             {live.length === 0 && (
               <p className="px-3.5 py-3 text-[12.5px] text-muted-foreground">
-                No network has a deployed escrow yet.
+                {capability === 'escrow'
+                  ? 'No network has a deployed escrow yet.'
+                  : 'No network can move a token in this deployment.'}
               </p>
             )}
             {live.map((chain) => (
               <Row
                 key={chain.key}
                 chain={chain}
+                usable
                 selected={chain.key === value}
                 onSelect={() => {
                   onChange?.(chain.key)
@@ -87,7 +101,7 @@ export function ChainSelector({
           {planned.length > 0 && (
             <Group label="Planned">
               {planned.map((chain) => (
-                <Row key={chain.key} chain={chain} selected={false} />
+                <Row key={chain.key} chain={chain} usable={false} selected={false} />
               ))}
             </Group>
           )}
@@ -108,15 +122,18 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 
 function Row({
   chain,
+  usable,
   selected,
   onSelect,
 }: {
   chain: VaultedChain
+  /** Whether this chain can do what the picker is picking for. */
+  usable: boolean
   selected: boolean
-  /** Absent for chains that are not live — those rows are not selectable at all. */
+  /** Absent for chains that are not usable — those rows are not selectable at all. */
   onSelect?: () => void
 }) {
-  const live = chain.availability === 'live'
+  const live = usable
   return (
     <button
       type="button"
@@ -134,7 +151,7 @@ function Row({
         <span className="block truncate text-[13.5px] font-medium">{chain.shortName}</span>
         <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
           {availabilityLabel(chain)}
-          {chain.family === 'svm' ? ' · Devnet' : chain.network === 'testnet' ? ` · ${chain.name}` : ''}
+          {chain.network === 'testnet' ? ` · ${chain.name}` : ''}
         </span>
       </span>
       {selected && <Check size={15} style={{ color: 'var(--vt-positive)' }} />}

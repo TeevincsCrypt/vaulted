@@ -54,19 +54,33 @@ export async function requireSigner(input: {
 }
 
 /**
- * Resolves a chain key and refuses anything Vaulted cannot actually transact on.
+ * Resolves a chain key and refuses anything Vaulted cannot actually move money on.
  *
  * This is the server-side backstop behind the disabled buttons: a chain listed as "coming soon"
  * must not be able to produce a database row that implies a payment could happen on it.
+ *
+ * The bar is a token and a way to transfer it, not a deployed escrow. Escrow is a property of how
+ * a particular payment settles, and the callers that need one ask for it themselves — holding
+ * every chain to it would mean nothing at all could be denominated on Solana, which can plainly
+ * move USDC today.
  */
 export function requireTransactableChain(chainKey: string) {
   const chain = getChain(chainKey)
   if (!chain) throw new ApiError(`Unknown chain "${chainKey}".`, 400)
-  if (chain.availability !== 'live') {
+  if (!chain.capabilities.transfer || !chain.token) {
     throw new ApiError(
-      `${chain.name} is not live yet${chain.note ? ` — ${chain.note}` : ''}`,
+      `${chain.name} cannot move money in this deployment${chain.note ? ` — ${chain.note}` : ''}.`,
       409,
     )
+  }
+  return chain
+}
+
+/** Refuses a chain with no deployed escrow. For the callers that genuinely need one. */
+export function requireEscrowChain(chainKey: string) {
+  const chain = requireTransactableChain(chainKey)
+  if (!chain.capabilities.escrow) {
+    throw new ApiError(`${chain.name} has no escrow contract deployed in this deployment.`, 409)
   }
   return chain
 }
