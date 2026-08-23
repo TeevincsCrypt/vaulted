@@ -1,6 +1,7 @@
 import { getAddress, isAddress, recoverMessageAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
 import { getVaultedConfig, isConfigured, ZERO_ADDRESS } from '../config'
+import { getChainByEvmId } from '../registry'
 import {
   computeEscrowId,
   detailsHash as computeDetailsHash,
@@ -11,6 +12,7 @@ import {
 } from '../invoice'
 import { displayStatus, EscrowState, type DisplayStatus } from '../status'
 import { readEscrow } from './chain'
+import { notifyEscrowTransition, notifyPaymentRequested } from './notifications'
 
 export class InvoiceError extends Error {
   constructor(
@@ -37,6 +39,8 @@ export type CreateInvoiceInput = {
   protectionPeriod: number
   fundingDeadline?: number | null
   signature: string
+  /** Optional: the job this escrow secures. Validated against the job's client. */
+  jobId?: string | null
 }
 
 /**
@@ -122,7 +126,33 @@ export async function createInvoice(input: CreateInvoiceInput) {
   const existing = await prisma.invoice.findUnique({ where: { id: input.invoiceId } })
   if (existing) throw new InvoiceError('That invoice id is already taken.', 409)
 
-  return prisma.invoice.create({
+  /*
+   * Linking to a job.
+   *
+   * The contract makes the escrow's creator its payee, so it is the hired freelancer who raises the
+   * request and the client who funds it. Both ends must therefore match the job: the signer is the
+   * assignee, and the named payer is the client who posted it. Without both checks anyone could
+   * bolt an escrow of their own choosing onto someone else's job and have the UI present it as that
+   * job's secured budget.
+   */
+  let jobId: string | null = null
+  if (input.jobId) {
+    const job = await prisma.job.findUnique({ where: { id: input.jobId }, include: { invoice: true } })
+    if (!job) throw new InvoiceError('No such job.', 404)
+    if (job.invoice) throw new InvoiceError('That job already has an escrow.', 409)
+    if (job.status !== 'ASSIGNED' || !job.assignedTo) {
+      throw new InvoiceError('That job has not been assigned to anyone yet.', 409)
+    }
+    if (job.assignedTo.toLowerCase() !== payee.toLowerCase()) {
+      throw new InvoiceError('Only the freelancer assigned to this job can raise its escrow.', 403)
+    }
+    if (payer.toLowerCase() !== job.clientAddress.toLowerCase()) {
+      throw new InvoiceError('A job escrow must be addressed to the client who posted the job.', 400)
+    }
+    jobId = job.id
+  }
+
+  const invoice = await prisma.invoice.create({
     data: {
       id: input.invoiceId,
       salt,
@@ -141,8 +171,13 @@ export async function createInvoice(input: CreateInvoiceInput) {
       fundingDeadline: fundingDeadline ? new Date(fundingDeadline * 1000) : null,
       creationSignature: input.signature,
       indexedStatus: 'AWAITING_CHAIN',
+      chainKey: getChainByEvmId(config.chainId)?.key,
+      jobId,
     },
   })
+
+  await notifyPaymentRequested(invoice)
+  return invoice
 }
 
 export async function getInvoice(invoiceId: string) {
@@ -203,6 +238,8 @@ export async function syncInvoice(invoiceId: string): Promise<InvoiceWithChain> 
   const termsMatch = escrow.detailsHash.toLowerCase() === invoice.detailsHash.toLowerCase()
   const status: DisplayStatus = displayStatus(escrow.state, escrow.isExpired)
 
+  const previousStatus = invoice.indexedStatus
+
   const updated = await prisma.invoice.update({
     where: { id: invoiceId },
     data: {
@@ -215,6 +252,21 @@ export async function syncInvoice(invoiceId: string): Promise<InvoiceWithChain> 
         escrow.state !== EscrowState.Created && escrow.payer !== ZERO_ADDRESS ? escrow.payer : null,
     },
   })
+
+  // The transition is a fact read from the contract, not an optimistic guess made on a click.
+  if (previousStatus !== status) {
+    await notifyEscrowTransition({
+      invoiceId: updated.id,
+      description: updated.description,
+      amount: updated.amount,
+      tokenSymbol: updated.tokenSymbol,
+      tokenDecimals: updated.tokenDecimals,
+      payeeAddress: updated.payeeAddress,
+      payerAddress: updated.payerAddress ?? updated.fundedByAddress,
+      from: previousStatus,
+      to: status,
+    })
+  }
 
   return { invoice: updated, onChain, termsMatch }
 }

@@ -188,6 +188,13 @@ model Job {
   /// Applicant the client accepted, if any.
   assignedTo String?
 
+  /// Work handed in by the assignee. Off-chain by nature — the contract has no concept of
+  /// "delivered", and payment still requires the client to release on chain.
+  submittedAt     DateTime?
+  submissionNote  String?
+  /// Newline-separated links to the delivered work.
+  submissionLinks String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

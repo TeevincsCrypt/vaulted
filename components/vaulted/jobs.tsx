@@ -405,7 +405,17 @@ export function JobDetail({ jobId }: { jobId: string }) {
           budget is not secured rather than implying it is.
         */}
         <div className="mt-5">
-          {job.invoiceId ? (
+          {job.status === 'ASSIGNED' &&
+          !job.invoiceId &&
+          address &&
+          job.assignedTo?.toLowerCase() === address.toLowerCase() ? (
+            <Notice tone="neutral" title="You were hired">
+              Raise the payment request so the client can lock the budget in escrow.{' '}
+              <Link href={`/request?job=${job.jobId}`} className="underline">
+                Secure the budget
+              </Link>
+            </Notice>
+          ) : job.invoiceId ? (
             <Notice tone="good" icon={<ShieldCheck size={15} />}>
               An escrow exists for this job.{' '}
               <Link href={`/requests/${job.invoiceId}`} className="underline">

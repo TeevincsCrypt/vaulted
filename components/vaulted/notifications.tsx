@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Bell, Briefcase, CheckCheck, UserPlus } from 'lucide-react'
+import { Bell, Briefcase, CheckCheck, FileCheck2, Loader2, RefreshCw, Send, UserPlus, Wallet } from 'lucide-react'
 import { useSession } from './session-provider'
 
 type Item = {
@@ -20,6 +20,12 @@ const ICON: Record<string, typeof Bell> = {
   JOB_APPLICATION: UserPlus,
   JOB_HIRED: CheckCheck,
   JOB_DECLINED: Bell,
+  WORK_SUBMITTED: FileCheck2,
+  PAYMENT_REQUESTED: Send,
+  PAYMENT_FUNDED: Wallet,
+  PAYMENT_RELEASED: CheckCheck,
+  PAYMENT_DISPUTED: Bell,
+  PAYMENT_REFUNDED: Wallet,
 }
 
 /** Notification bell. Polls while signed in; there is no websocket, and none is claimed. */
@@ -28,6 +34,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<Item[]>([])
   const [unread, setUnread] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async () => {
@@ -57,6 +64,15 @@ export function NotificationBell() {
     document.addEventListener('mousedown', onPointerDown)
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [open])
+
+  async function refresh() {
+    setRefreshing(true)
+    try {
+      await load()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   if (!account) return null
 
@@ -91,7 +107,18 @@ export function NotificationBell() {
 
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-[330px] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl">
-          <p className="vt-eyebrow border-b border-border px-4 py-3 text-muted-foreground">Notifications</p>
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+            <p className="vt-eyebrow text-muted-foreground">Notifications</p>
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              {refreshing ? <Loader2 size={12} className="vt-spin" /> : <RefreshCw size={12} />}
+              Refresh
+            </button>
+          </div>
           {items.length === 0 ? (
             <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">Nothing yet.</p>
           ) : (

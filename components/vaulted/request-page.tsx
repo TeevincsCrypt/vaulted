@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { ArrowUpRight, Clock, ShieldCheck, Users } from 'lucide-react'
 import { useVaultedConfig } from '@/lib/vaulted/client'
 import { formatDuration } from '@/lib/vaulted/format'
@@ -14,9 +15,39 @@ import { useSession } from './session-provider'
  * The original purpose of the protocol, on its own page: ask to be paid, and have the money secured
  * before the work starts.
  */
-export function RequestPaymentPage() {
+export function RequestPaymentPage({ jobId }: { jobId?: string }) {
   const config = useVaultedConfig()
   const { account } = useSession()
+  const [job, setJob] = useState<{ jobId: string; amount: string; description: string; client: string } | null>(null)
+  const [jobError, setJobError] = useState<string | null>(null)
+
+  // When raising the escrow for a job, the terms come from the job itself rather than the form.
+  useEffect(() => {
+    if (!jobId) return
+    let cancelled = false
+    void (async () => {
+      const response = await fetch(`/api/jobs/${jobId}`)
+      if (!response.ok) {
+        if (!cancelled) setJobError('That job could not be loaded.')
+        return
+      }
+      const body = await response.json()
+      if (cancelled) return
+      if (body.job.status !== 'ASSIGNED') {
+        setJobError('That job has not been assigned, so there is nothing to secure yet.')
+        return
+      }
+      setJob({
+        jobId: body.job.jobId,
+        amount: body.job.budgetAmount,
+        description: body.job.title,
+        client: body.job.clientAddress,
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [jobId])
 
   if (!config) {
     const resolved = getVaultedConfig()
@@ -26,7 +57,9 @@ export function RequestPaymentPage() {
   return (
     <AppShell>
       <div className="mb-8">
-        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Request a payment</h1>
+        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">
+          {jobId ? 'Secure the job budget' : 'Request a payment'}
+        </h1>
         <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
           Create a link, send it to your client. They fund an escrow contract instead of paying your
           wallet directly, and it settles to you when the protection window closes.
@@ -34,7 +67,15 @@ export function RequestPaymentPage() {
       </div>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <CreateRequest config={config} />
+        {jobId && !job ? (
+          <Card className="p-7">
+            <p className="text-[13.5px] text-muted-foreground">
+              {jobError ?? 'Loading the job…'}
+            </p>
+          </Card>
+        ) : (
+          <CreateRequest config={config} prefill={job ?? undefined} />
+        )}
 
         <div className="flex flex-col gap-4">
           <Card className="p-6">

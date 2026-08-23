@@ -63,7 +63,9 @@ Next.js 16 (App Router) · wagmi 3 + viem 2 · Prisma + Postgres · Solidity 0.8
 | `app/login` | Sign in with X (public) |
 | `app/dashboard` | Vault overview, read live from chain |
 | `app/request` | Create an escrow-protected payment request |
-| `app/work` | Jobs you applied to, and the escrow behind anything you were hired for |
+| `app/work` | Jobs you applied to; submit completed work here |
+| `app/jobs/posted` | Jobs you posted — review submissions and release funds |
+| `app/activity` | Transaction history, every row verifiable on chain |
 | `app/settings` | Link and verify wallets |
 | `app/pay/[invoiceId]` | Client payment page |
 | `app/receipt/[invoiceId]` | Shareable proof of payment |
@@ -220,6 +222,20 @@ for anyone without a browser extension. It needs a free project id from
 [cloud.reown.com](https://cloud.reown.com) in `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. Without it the
 dialog says so rather than silently showing extension-only options.
 
+## The job lifecycle
+
+Jobs reuse the escrow that is already in production; there is no second, softer way to move money.
+
+1. A client posts a job (signed).
+2. Freelancers apply (signed); the client accepts one (signed). **No money has moved.**
+3. The **assignee** raises the escrow from the job page — the contract makes the creator the payee,
+   so the freelancer raises it and the client funds it. The amount, client and description are
+   locked to the job, and the API rejects any attempt to attach an escrow to a job the signer was
+   not assigned to.
+4. The freelancer submits the work (signed, off-chain). This releases nothing.
+5. The client reviews on `/jobs/posted` and releases on chain — or does nothing, and the protection
+   window settles it to the freelancer anyway.
+
 ## Notifications
 
 In-app, polled every 30 seconds while signed in — there is no websocket and none is implied. Written
@@ -227,10 +243,16 @@ only when something actually happened:
 
 | Event | Who is notified |
 | --- | --- |
+| A payment request is addressed to you | the named client |
+| An escrow is funded / released / disputed / refunded | both sides |
 | A job is posted | every account except the poster |
 | Someone applies | the client who posted the job |
 | An applicant is hired | that applicant |
 | Another applicant is passed over | those applicants |
+| Work is submitted | the client |
+
+Escrow transitions are emitted from the sync path, which reads the contract — so they report
+something that demonstrably happened, rather than firing optimistically when a button was pressed.
 
 Delivery failures never fail the action that triggered them — a notification is a side effect, not a
 precondition.

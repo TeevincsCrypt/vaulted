@@ -10,7 +10,17 @@ import { accountForAddress } from './accounts'
  * that triggered them: a notification is a side effect of the work, not a precondition for it.
  */
 
-export type NotificationType = 'JOB_POSTED' | 'JOB_APPLICATION' | 'JOB_HIRED' | 'JOB_DECLINED'
+export type NotificationType =
+  | 'JOB_POSTED'
+  | 'JOB_APPLICATION'
+  | 'JOB_HIRED'
+  | 'JOB_DECLINED'
+  | 'WORK_SUBMITTED'
+  | 'PAYMENT_REQUESTED'
+  | 'PAYMENT_FUNDED'
+  | 'PAYMENT_RELEASED'
+  | 'PAYMENT_DISPUTED'
+  | 'PAYMENT_REFUNDED'
 
 type Input = {
   accountId: string
@@ -143,4 +153,149 @@ export async function markAllRead(accountId: string) {
     where: { accountId, readAt: null },
     data: { readAt: new Date() },
   })
+}
+
+/* ---------------------------------------------------------------- payments */
+
+/**
+ * Tells the client a payment request was addressed to them.
+ *
+ * Only fires when the request names a payer we can resolve to an account — an open link is
+ * addressed to nobody, so there is nobody to notify.
+ */
+export async function notifyPaymentRequested(invoice: {
+  id: string
+  description: string
+  amount: string
+  tokenSymbol: string
+  tokenDecimals: number
+  payeeAddress: string
+  payerAddress: string | null
+}) {
+  try {
+    if (!invoice.payerAddress) return
+    const payer = await accountForAddress(invoice.payerAddress)
+    if (!payer) return
+
+    const payee = await accountForAddress(invoice.payeeAddress)
+    const from = payee ? `@${payee.name}` : `${invoice.payeeAddress.slice(0, 8)}…`
+    const amount = `${formatAmount(invoice.amount, invoice.tokenDecimals)} ${invoice.tokenSymbol}`
+
+    await create([
+      {
+        accountId: payer.id,
+        type: 'PAYMENT_REQUESTED',
+        title: 'Payment requested',
+        body: `${from} requested ${amount} — ${invoice.description}`,
+        href: `/pay/${invoice.id}`,
+        invoiceId: invoice.id,
+      },
+    ])
+  } catch (error) {
+    console.error('[vaulted/notify payment requested]', error)
+  }
+}
+
+/** Tells the assignee's client that work was handed in. */
+export async function notifyWorkSubmitted(job: { id: string; title: string; clientAddress: string }, byAddress: string) {
+  try {
+    const client = await accountForAddress(job.clientAddress)
+    if (!client) return
+    const who = await accountForAddress(byAddress)
+
+    await create([
+      {
+        accountId: client.id,
+        type: 'WORK_SUBMITTED',
+        title: 'Work submitted',
+        body: `${who ? `@${who.name}` : `${byAddress.slice(0, 8)}…`} submitted work for ${job.title}`,
+        href: `/jobs/${job.id}`,
+        jobId: job.id,
+      },
+    ])
+  } catch (error) {
+    console.error('[vaulted/notify work submitted]', error)
+  }
+}
+
+/**
+ * Escrow state changed on chain.
+ *
+ * Called from the sync path, which reads the contract — so these are reports of something that
+ * demonstrably happened, not optimistic guesses made when a button was pressed. Both sides are
+ * told, minus whoever caused it where that is knowable.
+ */
+export async function notifyEscrowTransition(input: {
+  invoiceId: string
+  description: string
+  amount: string
+  tokenSymbol: string
+  tokenDecimals: number
+  payeeAddress: string
+  payerAddress: string | null
+  from: string
+  to: string
+}) {
+  try {
+    const map: Record<string, { type: NotificationType; title: string; forPayee: string; forPayer: string } | undefined> = {
+      IN_ESCROW: {
+        type: 'PAYMENT_FUNDED',
+        title: 'Escrow funded',
+        forPayee: 'is now locked in escrow for you',
+        forPayer: 'is locked in escrow',
+      },
+      RELEASED: {
+        type: 'PAYMENT_RELEASED',
+        title: 'Payment released',
+        forPayee: 'has been released to you',
+        forPayer: 'was released to the freelancer',
+      },
+      DISPUTED: {
+        type: 'PAYMENT_DISPUTED',
+        title: 'Payment disputed',
+        forPayee: 'was disputed by the client',
+        forPayer: 'is on hold while the dispute is open',
+      },
+      REFUNDED: {
+        type: 'PAYMENT_REFUNDED',
+        title: 'Payment refunded',
+        forPayee: 'was returned to the client',
+        forPayer: 'was returned to you',
+      },
+    }
+
+    const entry = map[input.to]
+    if (!entry || input.from === input.to) return
+
+    const amount = `${formatAmount(input.amount, input.tokenDecimals)} ${input.tokenSymbol}`
+    const [payee, payer] = await Promise.all([
+      accountForAddress(input.payeeAddress),
+      input.payerAddress ? accountForAddress(input.payerAddress) : Promise.resolve(null),
+    ])
+
+    const rows: Input[] = []
+    if (payee) {
+      rows.push({
+        accountId: payee.id,
+        type: entry.type,
+        title: entry.title,
+        body: `${amount} ${entry.forPayee} — ${input.description}`,
+        href: `/requests/${input.invoiceId}`,
+        invoiceId: input.invoiceId,
+      })
+    }
+    if (payer) {
+      rows.push({
+        accountId: payer.id,
+        type: entry.type,
+        title: entry.title,
+        body: `${amount} ${entry.forPayer} — ${input.description}`,
+        href: `/pay/${input.invoiceId}`,
+        invoiceId: input.invoiceId,
+      })
+    }
+    await create(rows)
+  } catch (error) {
+    console.error('[vaulted/notify escrow transition]', error)
+  }
 }

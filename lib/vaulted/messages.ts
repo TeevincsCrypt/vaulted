@@ -110,3 +110,15 @@ export function jobAcceptMessage(input: {
     'Signing assigns this job. Funding the escrow is a separate on-chain transaction.',
   ].join('\n')
 }
+
+export function workSubmissionMessage(input: { jobId: string; applicant: string; issuedAt: number }): string {
+  return [
+    'Vaulted — submit work',
+    '',
+    `Job: ${input.jobId}`,
+    `Freelancer: ${getAddress(input.applicant)}`,
+    `Issued: ${new Date(input.issuedAt * 1000).toISOString()}`,
+    '',
+    'Signing marks the work as delivered. It does not release any funds.',
+  ].join('\n')
+}

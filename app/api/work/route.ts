@@ -76,6 +76,9 @@ export async function GET(request: NextRequest) {
           deadline: job.deadline ? Math.floor(job.deadline.getTime() / 1000) : null,
           clientAddress: job.clientAddress,
           invoiceId: job.invoice?.id ?? null,
+          submittedAt: job.submittedAt ? Math.floor(job.submittedAt.getTime() / 1000) : null,
+          submissionNote: job.submissionNote,
+          submissionLinks: job.submissionLinks,
         },
         escrow,
       }

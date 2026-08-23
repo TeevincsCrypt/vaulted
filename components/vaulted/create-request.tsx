@@ -8,6 +8,7 @@ import { useAccount, useSignMessage } from 'wagmi'
 import { VAULTED_ESCROW_ABI } from '@/lib/vaulted/generated/abi'
 import type { VaultedConfig } from '@/lib/vaulted/config'
 import { ZERO_ADDRESS } from '@/lib/vaulted/config'
+import { getChainByEvmId } from '@/lib/vaulted/registry'
 import { readableError, useTransaction } from '@/lib/vaulted/client'
 import {
   detailsHash as computeDetailsHash,
@@ -16,7 +17,7 @@ import {
   invoiceCreationMessage,
   type InvoiceTerms,
 } from '@/lib/vaulted/invoice'
-import { PROTECTION_PERIOD_PRESETS, formatAmount, parseAmount } from '@/lib/vaulted/format'
+import { PROTECTION_PERIOD_PRESETS, formatAmount, formatAmountExact, parseAmount } from '@/lib/vaulted/format'
 import { Button, Card, CopyButton, Divider, Eyebrow, Field, Notice, inputClass } from './primitives'
 import { TransactionStatus } from './transaction-status'
 import { ConnectWalletButton, NetworkGuard } from './wallet'
@@ -31,7 +32,20 @@ type Stage = 'form' | 'signing' | 'publishing' | 'chain' | 'done'
  * transaction — until it confirms, there is no escrow, and the UI says so rather than showing a
  * link that would not work.
  */
-export function CreateRequest({ config, onCreated }: { config: VaultedConfig; onCreated?: () => void }) {
+export function CreateRequest({
+  config,
+  onCreated,
+  prefill,
+}: {
+  config: VaultedConfig
+  onCreated?: () => void
+  /**
+   * Pre-populated terms, used when raising the escrow for a job. The amount, client and description
+   * come from the job that was agreed, so they are locked — editing them here would mean the escrow
+   * no longer matches the job it claims to secure.
+   */
+  prefill?: { jobId: string; amount: string; description: string; client: string }
+}) {
   const { address, isConnected } = useAccount()
   const { signMessageAsync } = useSignMessage()
   const tx = useTransaction()
@@ -40,16 +54,21 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
   const [error, setError] = useState<string | null>(null)
   const [invoiceId, setInvoiceId] = useState<string | null>(null)
 
-  const [clientAddress, setClientAddress] = useState('')
+  const [clientAddress, setClientAddress] = useState(prefill?.client ?? '')
   // A handle typed into the client field is resolved to the wallet linked to that account.
   const [resolving, setResolving] = useState(false)
   const [resolved, setResolved] = useState<{ handle: string; address: string | null } | null>(null)
-  const [amountInput, setAmountInput] = useState('')
-  const [description, setDescription] = useState('')
+  const [amountInput, setAmountInput] = useState(
+    prefill ? formatAmountExact(prefill.amount, config.token.decimals) : '',
+  )
+  const [description, setDescription] = useState(prefill?.description ?? '')
   const [protectionPeriod, setProtectionPeriod] = useState(config.defaultProtectionPeriod)
   const [deadlineDays, setDeadlineDays] = useState('')
 
   const amount = useMemo(() => parseAmount(amountInput, config.token.decimals), [amountInput, config.token.decimals])
+
+  // Registry key for the configured chain, so handle resolution asks for the right network.
+  const chainKey = getChainByEvmId(config.chainId)?.key ?? null
 
   const raw = clientAddress.trim()
   const looksLikeHandle = raw.startsWith('@') || /^[a-z0-9_]{3,20}$/i.test(raw)
@@ -69,7 +88,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
     const timer = setTimeout(async () => {
       try {
         const response = await fetch(
-          `/api/accounts/resolve?handle=${encodeURIComponent(raw.replace(/^@/, ''))}&chainKey=${config.chain.id === 84532 ? 'base-sepolia' : ''}`,
+          `/api/accounts/resolve?handle=${encodeURIComponent(raw.replace(/^@/, ''))}&chainKey=${chainKey ?? ''}`,
         )
         const body = await response.json()
         if (!cancelled) setResolved(body.found ? { handle: body.handle, address: body.address } : null)
@@ -83,7 +102,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
       cancelled = true
       clearTimeout(timer)
     }
-  }, [raw, looksLikeHandle, config.chain.id])
+  }, [raw, looksLikeHandle, chainKey])
   const sameWallet = Boolean(address) && effectiveClient?.toLowerCase() === address?.toLowerCase()
 
   const canSubmit =
@@ -134,6 +153,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
           protectionPeriod,
           fundingDeadline: fundingDeadline || null,
           signature,
+          jobId: prefill?.jobId ?? null,
         }),
       })
       if (!response.ok) {
@@ -232,11 +252,14 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
 
   return (
     <Card className="p-7">
-      <Eyebrow>New payment request</Eyebrow>
-      <h2 className="vt-display mt-2 text-xl">Get paid, with escrow protection</h2>
+      <Eyebrow>{prefill ? 'Escrow for a job' : 'New payment request'}</Eyebrow>
+      <h2 className="vt-display mt-2 text-xl">
+        {prefill ? 'Secure the agreed budget' : 'Get paid, with escrow protection'}
+      </h2>
       <p className="mt-1.5 text-sm text-muted-foreground">
-        Your client funds a contract, not your wallet. You are paid automatically once the protection
-        window closes.
+        {prefill
+          ? 'The amount, client and description come from the job you were hired for and cannot be changed here.'
+          : 'Your client funds a contract, not your wallet. You are paid automatically once the protection window closes.'}
       </p>
 
       <div className="mt-6 flex flex-col gap-4">
@@ -251,7 +274,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
               inputMode="decimal"
               placeholder="500.00"
               className={`${inputClass} vt-numeric pr-20 text-lg`}
-              disabled={busy}
+              disabled={busy || Boolean(prefill)}
             />
             <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
               {config.token.symbol}
@@ -266,7 +289,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
             placeholder="Web3 Growth Campaign"
             maxLength={500}
             className={inputClass}
-            disabled={busy}
+            disabled={busy || Boolean(prefill)}
           />
         </Field>
 
@@ -298,7 +321,7 @@ export function CreateRequest({ config, onCreated }: { config: VaultedConfig; on
             placeholder="@handle or 0x…"
             spellCheck={false}
             className={`${inputClass} font-mono text-[13px]`}
-            disabled={busy}
+            disabled={busy || Boolean(prefill)}
           />
         </Field>
 

@@ -8,7 +8,8 @@ export const metadata: Metadata = {
 }
 export const dynamic = 'force-dynamic'
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ job?: string }> }) {
   await requirePage()
-  return <RequestPaymentPage />
+  const { job } = await searchParams
+  return <RequestPaymentPage jobId={job} />
 }

@@ -1,8 +1,19 @@
 import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
-import { jobAcceptMessage, jobApplicationMessage, jobCreationMessage } from '../messages'
+import {
+  jobAcceptMessage,
+  jobApplicationMessage,
+  jobCreationMessage,
+  workSubmissionMessage,
+} from '../messages'
 import { ApiError, requireSigner, requireTransactableChain } from './auth'
-import { notifyApplicationReceived, notifyDeclined, notifyHired, notifyJobPosted } from './notifications'
+import {
+  notifyApplicationReceived,
+  notifyDeclined,
+  notifyHired,
+  notifyJobPosted,
+  notifyWorkSubmitted,
+} from './notifications'
 
 /**
  * Jobs: a client posts funded work, freelancers apply, the client accepts one.
@@ -219,6 +230,57 @@ export async function acceptApplicant(input: {
   return updated
 }
 
+/**
+ * The assignee hands in the work.
+ *
+ * Off-chain by nature: the escrow contract has no concept of "delivered", and this changes nothing
+ * about the money. It tells the client there is something to review, and payment still requires
+ * them to release on chain — or for the protection window to close, which pays out regardless.
+ *
+ * Re-submitting overwrites the previous note, so a freelancer can correct a bad link.
+ */
+export async function submitWork(input: {
+  jobId: string
+  applicantAddress: string
+  note: string
+  links: string
+  issuedAt: number
+  signature: string
+}) {
+  const job = await prisma.job.findUnique({ where: { id: input.jobId } })
+  if (!job) throw new ApiError('No such job.', 404)
+  if (!job.assignedTo) throw new ApiError('This job has not been assigned yet.', 409)
+
+  const submitter = await requireSigner({
+    message: workSubmissionMessage({
+      jobId: job.id,
+      applicant: input.applicantAddress,
+      issuedAt: input.issuedAt,
+    }),
+    signature: input.signature,
+    expected: input.applicantAddress,
+    issuedAt: input.issuedAt,
+    what: 'this submission',
+  })
+
+  if (submitter.toLowerCase() !== job.assignedTo.toLowerCase()) {
+    throw new ApiError('Only the freelancer assigned to this job can submit work.', 403)
+  }
+
+  const note = input.note.trim()
+  if (!note || note.length > MAX_APPLICATION) {
+    throw new ApiError(`A note is required, up to ${MAX_APPLICATION} characters.`, 400)
+  }
+
+  const updated = await prisma.job.update({
+    where: { id: job.id },
+    data: { submittedAt: new Date(), submissionNote: note, submissionLinks: input.links.trim() || null },
+  })
+
+  await notifyWorkSubmitted(job, submitter)
+  return updated
+}
+
 export async function getJob(jobId: string) {
   if (!JOB_ID_PATTERN.test(jobId)) return null
   return prisma.job.findUnique({
@@ -258,6 +320,9 @@ export function serialiseJob(job: JobWithExtras) {
     clientAddress: job.clientAddress,
     status: job.status as JobStatus,
     assignedTo: job.assignedTo,
+    submittedAt: job.submittedAt ? Math.floor(job.submittedAt.getTime() / 1000) : null,
+    submissionNote: job.submissionNote,
+    submissionLinks: job.submissionLinks,
     applicationCount: '_count' in job ? job._count.applications : undefined,
     /**
      * The invoice carrying this job's escrow, if one exists. Whether it is actually funded is a

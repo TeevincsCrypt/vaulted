@@ -14,9 +14,11 @@ export { VaultedWordmark as VaultedMark } from './marketing/logo'
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/request', label: 'Request payment' },
-  { href: '/jobs', label: 'Jobs' },
+  { href: '/request', label: 'Request' },
+  { href: '/jobs', label: 'Find work' },
+  { href: '/jobs/posted', label: 'My jobs' },
   { href: '/work', label: 'My work' },
+  { href: '/activity', label: 'Activity' },
 ]
 
 /**
@@ -41,7 +43,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
             <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
               {NAV.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
+                const active =
+                  pathname === item.href ||
+                  (item.href !== '/jobs' && pathname.startsWith(`${item.href}/`)) ||
+                  (item.href === '/jobs' && /^\/jobs\/(?!posted)/.test(pathname))
                 return (
                   <Link
                     key={item.href}

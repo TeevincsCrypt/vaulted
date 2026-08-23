@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
       protectionPeriod: Number(body.protectionPeriod ?? 0),
       fundingDeadline: body.fundingDeadline ? Number(body.fundingDeadline) : null,
       signature: String(body.signature ?? ''),
+      jobId: body.jobId ? String(body.jobId) : null,
     })
     return NextResponse.json({ invoice: serialiseInvoice(invoice) }, { status: 201 })
   } catch (error) {
