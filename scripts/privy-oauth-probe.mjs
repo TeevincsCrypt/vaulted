@@ -21,7 +21,8 @@
  * origin is missing from Privy's allowed domains, which is a different failure with the same
  * symptom.
  *
- * Runs on plain node — no build step, no dev dependencies, nothing to install.
+ * Runs on plain node and touches nothing in node_modules, so it works in a fresh clone before
+ * anything is installed, under npm, pnpm or a workspace, on any platform.
  *
  * Run: npm run privy:probe -- --redirect-to https://your-domain
  */
@@ -88,13 +89,37 @@ const b64url = (input) =>
 const verifier = b64url(randomBytes(32))
 const codeChallenge = b64url(createHash('sha256').update(verifier).digest())
 
-const sdkVersion = JSON.parse(
-  readFileSync(path.join(ROOT, 'node_modules/@privy-io/react-auth/package.json'), 'utf8'),
-).version
+/**
+ * The SDK version, for the `privy-client` header the SDK sends.
+ *
+ * Read from this repo's own package.json, never from node_modules. Two reasons: the package does
+ * not expose `./package.json` through its exports map, so there is no supported way to resolve it
+ * (`require.resolve` fails with ERR_PACKAGE_PATH_NOT_EXPORTED); and the installed layout differs
+ * between npm, pnpm and workspaces, so a hardcoded path is a guess that happens to hold on one
+ * machine. The declared dependency is the version that gets installed, it sits beside this script,
+ * and it is there whether or not anything has been installed yet.
+ *
+ * If it cannot be read the header simply goes without a version. This probe is a diagnostic; it
+ * must not fail over a telemetry string.
+ */
+function declaredSdkVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+    const spec =
+      pkg.dependencies?.['@privy-io/react-auth'] ?? pkg.devDependencies?.['@privy-io/react-auth']
+    const version = typeof spec === 'string' ? spec.replace(/^[^\d]*/, '') : ''
+    return /^\d+\.\d+\.\d+/.test(version) ? version : null
+  } catch {
+    return null
+  }
+}
+
+const sdkVersion = declaredSdkVersion()
 
 console.log(`\nasking ${apiUrl} what it sends ${provider}`)
 console.log(`  app id      ${appId}`)
-console.log(`  return url  ${redirectTo}\n`)
+console.log(`  return url  ${redirectTo}`)
+console.log(`  sdk         react-auth${sdkVersion ? ` ${sdkVersion}` : ' (version undeclared)'}\n`)
 
 let response
 try {
@@ -103,7 +128,7 @@ try {
     headers: {
       'content-type': 'application/json',
       'privy-app-id': appId,
-      'privy-client': `react-auth:${sdkVersion}`,
+      'privy-client': sdkVersion ? `react-auth:${sdkVersion}` : 'react-auth',
       'privy-ca-id': '',
     },
     body: JSON.stringify({
