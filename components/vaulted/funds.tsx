@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowUpFromLine, Coins, ShieldCheck } from 'lucide-react'
 import { erc20Abi, isAddress, getAddress } from 'viem'
 import { useAccount, useBalance } from 'wagmi'
@@ -52,6 +52,10 @@ export function Funds() {
   */
   const address = (connected ?? account?.primaryAddress ?? null) as `0x${string}` | null
 
+  // The account's Solana wallet, recorded server-side when Privy provisioned it. Filed under the
+  // Solana network precisely so it can never be confused with the EVM one.
+  const solanaAddress = account?.wallets.find((wallet) => wallet.chainKey === 'solana')?.address ?? null
+
   return (
     <AppShell>
       <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Funds</h1>
@@ -78,12 +82,26 @@ export function Funds() {
           </Notice>
         </div>
       ) : (
-        <div className="mt-8 grid items-start gap-5 lg:grid-cols-2">
-          <Balances address={address} />
-          <Receive address={address} />
-          <div className="lg:col-span-2">
-            <Withdraw address={address} />
-          </div>
+        <div className="mt-8 flex flex-col gap-8">
+          <section>
+            <Eyebrow>{config.chainName}</Eyebrow>
+            <div className="mt-3 grid items-start gap-5 lg:grid-cols-2">
+              <Balances address={address} />
+              <Receive address={address} />
+              <div className="lg:col-span-2">
+                <Withdraw address={address} />
+              </div>
+            </div>
+          </section>
+
+          {solanaAddress && (
+            <section>
+              <Eyebrow>Solana</Eyebrow>
+              <div className="mt-3 grid items-start gap-5 lg:grid-cols-2">
+                <SolanaFunds address={solanaAddress} />
+              </div>
+            </section>
+          )}
         </div>
       )}
     </AppShell>
@@ -351,5 +369,138 @@ function Withdraw({ address }: { address: `0x${string}` }) {
         approval in Privy sends it.
       </p>
     </Card>
+  )
+}
+
+/**
+ * The Solana side of the wallet.
+ *
+ * Receiving is complete: the address is real, it is the one Privy provisioned, and anything sent to
+ * it arrives. The balance is read from the cluster through the server, so an API-keyed RPC stays
+ * off the client and a browser-origin rejection cannot make it look broken.
+ *
+ * Sending is not offered, and there is no button pretending otherwise. Vaulted has no Solana
+ * signing flow — the EVM wallet reaches wagmi through Privy's connector and the Solana one does
+ * not — so a "withdraw" here would be a dead control. Exporting the key is the honest route out,
+ * and it is on the wallet page.
+ */
+function SolanaFunds({ address }: { address: string }) {
+  const [state, setState] = useState<
+    | { status: 'loading' }
+    | { status: 'ok'; token: { symbol: string; decimals: number; amount: string }; native: { amount: string }; networkName: string }
+    | { status: 'error'; reason: string }
+  >({ status: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await fetch(`/api/solana/balance?address=${address}`, { cache: 'no-store' })
+        const body = await response.json()
+        if (cancelled) return
+        if (!response.ok) throw new Error(body.error ?? 'Could not read Solana.')
+        if (!body.readable) {
+          setState({ status: 'error', reason: body.reason ?? 'Solana could not be read.' })
+          return
+        }
+        setState({ status: 'ok', token: body.token, native: body.native, networkName: body.networkName })
+      } catch (cause) {
+        if (!cancelled) setState({ status: 'error', reason: readableError(cause) })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [address])
+
+  return (
+    <>
+      <Card className="p-7">
+        <Eyebrow>Balance</Eyebrow>
+        <div className="mt-4 flex flex-col gap-4">
+          <div>
+            <div className="flex items-baseline gap-2">
+              {state.status === 'loading' ? (
+                <Skeleton className="h-9 w-40" />
+              ) : state.status === 'error' ? (
+                <span className="text-[15px] text-muted-foreground">unreadable</span>
+              ) : (
+                <>
+                  <span className="text-[30px] font-semibold leading-none tracking-tight">
+                    {formatAmountExact(state.token.amount, state.token.decimals)}
+                  </span>
+                  <span className="text-[15px] text-muted-foreground">{state.token.symbol}</span>
+                </>
+              )}
+            </div>
+            <p className="mt-1.5 text-[11.5px] text-muted-foreground">
+              USDC on Solana. Payment links settle here too.
+            </p>
+          </div>
+
+          <Divider />
+
+          <div>
+            <div className="flex items-baseline gap-2">
+              {state.status === 'ok' ? (
+                <>
+                  <span className="text-[17px] font-medium">
+                    {formatAmount(state.native.amount, 9, 6)}
+                  </span>
+                  <span className="text-[13px] text-muted-foreground">SOL</span>
+                </>
+              ) : state.status === 'loading' ? (
+                <Skeleton className="h-6 w-28" />
+              ) : (
+                <span className="text-[13.5px] text-muted-foreground">unreadable</span>
+              )}
+            </div>
+            <p className="mt-1.5 text-[11.5px] text-muted-foreground">
+              Solana fees, and the rent for a token account.
+            </p>
+          </div>
+        </div>
+
+        {state.status === 'error' && (
+          <div className="mt-4">
+            <Notice tone="warn">{state.reason} Nothing is estimated in its place.</Notice>
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-7">
+        <Eyebrow>Add funds</Eyebrow>
+        <h2 className="vt-display mt-2 text-lg">Send USDC on Solana here</h2>
+        <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
+          Your Solana wallet, provisioned with the account. Anything sent to it on Solana mainnet
+          arrives directly.
+        </p>
+
+        <div className="mt-5 rounded-xl border border-border bg-muted/40 p-4">
+          <p className="break-all font-mono text-[13px] leading-relaxed">{address}</p>
+          <div className="mt-3">
+            <CopyButton value={address} label="Copy Solana address" />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <Notice tone="warn">
+            Solana only. This is not an EVM address — sending Base USDC here loses it, and Vaulted
+            cannot recover it.
+          </Notice>
+        </div>
+
+        <Divider className="my-5" />
+
+        <Eyebrow>Sending out</Eyebrow>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+          Vaulted cannot yet sign a Solana transaction for you — the EVM wallet reaches the app
+          through Privy&rsquo;s wagmi connector and the Solana one does not — so there is no send
+          button here rather than one that would not work. To move these funds now, export the
+          wallet key from <a href="/settings" className="underline">your wallet page</a> and send
+          from any Solana wallet.
+        </p>
+      </Card>
+    </>
   )
 }

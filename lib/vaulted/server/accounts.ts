@@ -200,6 +200,22 @@ export async function requireAccount(): Promise<SessionAccount> {
   return account
 }
 
+/**
+ * The EVM addresses among an account's wallets.
+ *
+ * An account now holds a wallet per rail, and these are fed to viem, which throws on anything that
+ * is not a 20-byte hex address. Passing the Solana one in is what made Activity, My work and My
+ * jobs return 500 for every account that had one. Filtering here rather than at each call site
+ * means the next rail added cannot break them again.
+ */
+export function evmAddressesOf(account: Pick<SessionAccount, 'wallets' | 'primaryAddress'> | null): string[] {
+  const candidates = [
+    ...(account?.wallets.map((wallet) => wallet.address) ?? []),
+    ...(account?.primaryAddress ? [account.primaryAddress] : []),
+  ]
+  return [...new Set(candidates.filter((value) => isAddress(value)).map((value) => getAddress(value)))]
+}
+
 export async function accountByHandle(rawHandle: string) {
   const handle = rawHandle.trim().replace(/^@/, '').toLowerCase()
   if (!handle) return null

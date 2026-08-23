@@ -16,13 +16,11 @@ export { VaultedWordmark as VaultedMark } from './marketing/logo'
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/funds', label: 'Funds' },
-  { href: '/request', label: 'Request' },
-  { href: '/payment-requests', label: 'Payment links' },
-  { href: '/inbox', label: 'To pay' },
-  { href: '/jobs', label: 'Find work' },
+  { href: '/jobs', label: 'Marketplace' },
   { href: '/jobs/posted', label: 'My jobs' },
   { href: '/work', label: 'My work' },
+  { href: '/payment-requests', label: 'Payments' },
+  { href: '/funds', label: 'Funds' },
   { href: '/activity', label: 'Activity' },
 ]
 
@@ -41,12 +39,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-border bg-[#08080a]/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5">
-          <div className="flex items-center gap-7">
-            <Link href="/dashboard" className="transition-opacity hover:opacity-80">
+        <div className="mx-auto flex h-[68px] max-w-[1240px] items-center justify-between gap-6 px-6">
+          <div className="flex min-w-0 items-center gap-9">
+            <Link href="/dashboard" className="shrink-0 transition-opacity hover:opacity-80">
               <VaultedWordmark />
             </Link>
-            <nav className="hidden items-center gap-6 lg:flex" aria-label="Primary">
+            <nav className="hidden items-center gap-1 xl:flex" aria-label="Primary">
               {NAV.map((item) => {
                 const active =
                   pathname === item.href ||
@@ -56,8 +54,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`text-[13.5px] transition-colors ${
-                      active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    aria-current={active ? 'page' : undefined}
+                    className={`whitespace-nowrap rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+                      active
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                     }`}
                   >
                     {item.label}
@@ -67,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2.5">
             {config && (
               <span className="hidden items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1.5 text-[11.5px] text-muted-foreground md:flex">
                 <span className="size-1.5 rounded-full" style={{ background: 'var(--vt-positive)' }} />
@@ -80,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => setOpen((value) => !value)}
-              className="rounded-lg p-2 text-muted-foreground lg:hidden"
+              className="rounded-lg p-2 text-muted-foreground xl:hidden"
               aria-label={open ? 'Close menu' : 'Open menu'}
             >
               {open ? <X size={18} /> : <Menu size={18} />}
@@ -89,24 +90,26 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         {open && (
-          <nav className="border-t border-border px-5 py-3 lg:hidden" aria-label="Primary mobile">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className="block rounded-lg px-2 py-2.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                {item.label}
-              </Link>
-            ))}
+          <nav className="border-t border-border px-6 py-3 xl:hidden" aria-label="Primary mobile">
+            {[...NAV, { href: '/request', label: 'Raise an escrow' }, { href: '/inbox', label: 'To pay' }].map(
+              (item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  className="block rounded-lg px-3 py-3 text-[14px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  {item.label}
+                </Link>
+              ),
+            )}
           </nav>
         )}
       </header>
 
-      <main className="mx-auto max-w-6xl px-5 py-10">{children}</main>
+      <main className="mx-auto max-w-[1240px] px-6 py-10">{children}</main>
 
-      <footer className="mx-auto max-w-6xl px-5 pb-12">
+      <footer className="mx-auto max-w-[1240px] px-6 pb-12">
         <p className="text-xs text-muted-foreground">
           Escrow is enforced by a smart contract. Vaulted never takes custody of your funds.
           {account && <> Signed in as @{account.name}.</>}
@@ -146,13 +149,21 @@ function AccountChip() {
             <p className="text-[13px] font-medium">@{account.name}</p>
             {account.displayName && <p className="text-[11.5px] text-muted-foreground">{account.displayName}</p>}
           </div>
-          <Link
-            href="/settings"
-            onClick={() => setOpen(false)}
-            className="block px-4 py-2.5 text-[13px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          >
-            Your wallet
-          </Link>
+          {/* Kept out of the top row to keep it uncluttered, but never unreachable. */}
+          {[
+            { href: '/settings', label: 'Your wallet' },
+            { href: '/request', label: 'Raise an escrow' },
+            { href: '/inbox', label: 'To pay' },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setOpen(false)}
+              className="block px-4 py-2.5 text-[13px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              {item.label}
+            </Link>
+          ))}
           <button
             type="button"
             onClick={signOut}

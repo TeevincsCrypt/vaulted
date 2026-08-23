@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAddress, isAddress } from 'viem'
-import { currentAccount } from '@/lib/vaulted/server/accounts'
-import { adapterFor, ChainNotImplementedError } from '@/lib/vaulted/adapters'
+import { currentAccount, evmAddressesOf } from '@/lib/vaulted/server/accounts'
+import { adapterFor, ChainNotImplementedError, readWithDeadline } from '@/lib/vaulted/adapters'
 import { getChain } from '@/lib/vaulted/registry'
 import { displayStatus } from '@/lib/vaulted/status'
 import { serverRpcUrl } from '@/lib/vaulted/server/rpc'
@@ -17,12 +17,11 @@ export async function GET(request: NextRequest) {
   const account = await currentAccount().catch(() => null)
   const extra = request.nextUrl.searchParams.get('address')
 
-  const addresses = [
-    ...(account?.wallets.map((wallet) => wallet.address) ?? []),
-    ...(account?.primaryAddress ? [account.primaryAddress] : []),
+  const checksummed = [
+    ...evmAddressesOf(account),
     ...(extra && isAddress(extra) ? [getAddress(extra)] : []),
   ]
-  const unique = [...new Set(addresses.map((a) => a.toLowerCase()))]
+  const unique = [...new Set(checksummed.map((a) => a.toLowerCase()))]
 
   if (unique.length === 0) return NextResponse.json({ applications: [], addresses: [] })
 
@@ -43,7 +42,12 @@ export async function GET(request: NextRequest) {
       let escrow: { status: string; live: boolean; reason?: string } | null = null
       if (job.invoice && chain) {
         try {
-          const snapshot = await adapterFor(chain, serverRpcUrl()).readEscrow(job.invoice.escrowId)
+          const escrowId = job.invoice.escrowId
+          const read = await readWithDeadline(() =>
+            adapterFor(chain, serverRpcUrl()).readEscrow(escrowId),
+          )
+          if (!read.ok) throw new Error(read.reason)
+          const snapshot = read.value
           escrow = snapshot
             ? { status: displayStatus(snapshot.state, snapshot.isExpired), live: true }
             : { status: 'AWAITING_CHAIN', live: true }

@@ -114,7 +114,20 @@ export class EvmEscrowAdapter implements EscrowAdapter {
     if (!this.client) {
       this.client = createPublicClient({
         chain: this.chain.viemChain,
-        transport: http(this.rpcUrl),
+        /*
+          Three settings, all about a page that lists many escrows.
+
+          `batch` is the important one: a dashboard reads one escrow per row, and without batching
+          that is one HTTP round trip each, fired at a public RPC that rate-limits. Batched, the
+          whole page is a single request.
+
+          The timeout and retry count replace viem's defaults (10s, 3 retries), which multiply to
+          around forty seconds before a single unreachable row gives up — long enough that the page
+          looks broken rather than degraded. Six seconds and one retry is plenty for a healthy
+          endpoint and fails fast on a sick one, and a row that fails is reported as unreadable
+          rather than guessed at.
+        */
+        transport: http(this.rpcUrl, { batch: true, timeout: 6_000, retryCount: 1 }),
       }) as PublicClient
     }
     return this.client

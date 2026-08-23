@@ -29,3 +29,30 @@ export function adapterFor(chain: VaultedChain, rpcUrl?: string): EscrowAdapter 
       return new SolanaEscrowAdapter(chain)
   }
 }
+
+/**
+ * Caps how long one chain read may hold up a page.
+ *
+ * The adapter already fails fast per request, but a rate-limited endpoint can still stall a batch
+ * behind a queue. A list of escrows is better rendered with one row marked unreadable than not
+ * rendered at all, so this turns a slow read into a known-unknown instead of a hung request.
+ */
+export async function readWithDeadline<T>(
+  read: () => Promise<T>,
+  ms = 8_000,
+): Promise<{ ok: true; value: T } | { ok: false; reason: string }> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const value = await Promise.race([
+      read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`the chain did not respond within ${ms / 1000}s`)), ms)
+      }),
+    ])
+    return { ok: true, value }
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}

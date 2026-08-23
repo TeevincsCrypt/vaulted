@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
-import { adapterFor, ChainNotImplementedError } from '@/lib/vaulted/adapters'
-import { currentAccount } from '@/lib/vaulted/server/accounts'
+import { adapterFor, ChainNotImplementedError, readWithDeadline } from '@/lib/vaulted/adapters'
+import { currentAccount, evmAddressesOf } from '@/lib/vaulted/server/accounts'
 import { serverRpcUrl } from '@/lib/vaulted/server/rpc'
 import { getChain } from '@/lib/vaulted/registry'
 import { displayStatus } from '@/lib/vaulted/status'
@@ -17,12 +17,10 @@ export async function GET(request: NextRequest) {
   const account = await currentAccount().catch(() => null)
   const extra = request.nextUrl.searchParams.get('address')
 
-  const addresses = [
-    ...(account?.wallets.map((w) => w.address) ?? []),
-    ...(account?.primaryAddress ? [account.primaryAddress] : []),
+  const unique = [
+    ...evmAddressesOf(account),
     ...(extra && isAddress(extra) ? [getAddress(extra)] : []),
-  ].map((a) => getAddress(a))
-  const unique = [...new Set(addresses)]
+  ]
 
   if (unique.length === 0) return NextResponse.json({ jobs: [] })
 
@@ -40,7 +38,12 @@ export async function GET(request: NextRequest) {
 
       if (job.invoice && chain) {
         try {
-          const snapshot = await adapterFor(chain, serverRpcUrl()).readEscrow(job.invoice.escrowId)
+          const escrowId = job.invoice.escrowId
+          const read = await readWithDeadline(() =>
+            adapterFor(chain, serverRpcUrl()).readEscrow(escrowId),
+          )
+          if (!read.ok) throw new Error(read.reason)
+          const snapshot = read.value
           escrow = snapshot
             ? { status: displayStatus(snapshot.state, snapshot.isExpired), live: true }
             : { status: 'AWAITING_CHAIN', live: true }

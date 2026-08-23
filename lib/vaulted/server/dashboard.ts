@@ -1,6 +1,6 @@
 import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
-import { adapterFor, ChainNotImplementedError } from '../adapters'
+import { adapterFor, ChainNotImplementedError, readWithDeadline } from '../adapters'
 import { getChain, getChainByEvmId, type VaultedChain } from '../registry'
 import { displayStatus, EscrowState, type DisplayStatus } from '../status'
 import { handlesForAddresses } from './accounts'
@@ -118,7 +118,9 @@ export async function dashboardFor(rawAddress: string, rpcUrl?: string) {
 
       try {
         const adapter = adapterFor(chain, rpcUrl)
-        const snapshot = await adapter.readEscrow(invoice.escrowId)
+        const read = await readWithDeadline(() => adapter.readEscrow(invoice.escrowId))
+        if (!read.ok) throw new Error(read.reason)
+        const snapshot = read.value
 
         if (!snapshot) {
           return {

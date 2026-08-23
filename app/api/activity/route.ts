@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
-import { currentAccount, handlesForAddresses } from '@/lib/vaulted/server/accounts'
+import { currentAccount, handlesForAddresses, evmAddressesOf } from '@/lib/vaulted/server/accounts'
 import { getChain, getChainByEvmId, explorerTxUrl } from '@/lib/vaulted/registry'
 
 /**
@@ -15,12 +15,10 @@ export async function GET(request: NextRequest) {
   const account = await currentAccount().catch(() => null)
   const extra = request.nextUrl.searchParams.get('address')
 
-  const addresses = [
-    ...(account?.wallets.map((w) => w.address) ?? []),
-    ...(account?.primaryAddress ? [account.primaryAddress] : []),
+  const unique = [
+    ...evmAddressesOf(account),
     ...(extra && isAddress(extra) ? [getAddress(extra)] : []),
-  ].map((a) => getAddress(a))
-  const unique = [...new Set(addresses)]
+  ]
 
   if (unique.length === 0) return NextResponse.json({ events: [] })
 
