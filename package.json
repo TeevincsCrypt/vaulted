@@ -23,7 +23,8 @@
     "check:adapters": "tsx scripts/check-adapters.mjs",
     "check": "npm run typecheck && npm run check:escrow-id && npm run check:adapters && npm run check:privy",
     "check:privy": "tsx scripts/check-privy-token.mjs",
-    "e2e:privy": "tsx scripts/e2e-privy-session.mjs"
+    "e2e:privy": "tsx scripts/e2e-privy-session.mjs",
+    "privy:probe": "tsx scripts/privy-oauth-probe.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

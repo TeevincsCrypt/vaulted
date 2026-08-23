@@ -39,7 +39,7 @@ if (!process.env.DATABASE_URL) {
 const APP_PORT = Number(process.env.VAULTED_E2E_PORT ?? 3399)
 const MOCK_PORT = APP_PORT + 1
 const APP = `http://127.0.0.1:${APP_PORT}`
-const APP_ID = 'e2e-privy-app'
+const APP_ID = 'cme2eprivyapp000000000000' // exactly 25 characters, as a real Privy app id is
 const APP_SECRET = 'e2e-app-secret'
 const DID = 'did:privy:e2e-vaulted'
 const SUBJECT = '4815162342'

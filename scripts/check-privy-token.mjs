@@ -9,7 +9,10 @@
  */
 import { createSign, generateKeyPairSync, randomUUID } from 'node:crypto'
 
-process.env.NEXT_PUBLIC_PRIVY_APP_ID = 'test-app-id'
+// Exactly 25 characters: the verifier rejects anything else as not being a Privy app id, so a
+// short placeholder here would fail every case for the wrong reason.
+const APP_ID = 'cmtestappid00000000000000'
+process.env.NEXT_PUBLIC_PRIVY_APP_ID = APP_ID
 process.env.PRIVY_APP_SECRET = 'test-app-secret'
 
 const { verifyPrivyToken, PrivyError, __setVerificationKeyForTest } = await import('../lib/vaulted/server/privy.ts')
@@ -34,7 +37,7 @@ function mint({ header = {}, payload = {}, key = privateKey, tamper = false } = 
   const fullPayload = {
     sub: 'did:privy:test-user',
     iss: 'privy.io',
-    aud: 'test-app-id',
+    aud: APP_ID,
     sid: randomUUID(),
     iat: now,
     exp: now + 3600,
@@ -62,7 +65,7 @@ check(identity.userId === 'did:privy:test-user', `subject -> ${identity.userId}`
 check(typeof identity.sessionId === 'string', 'session id is carried through')
 check((await verifyPrivyToken(`Bearer ${mint()}`)).userId === 'did:privy:test-user', 'a Bearer prefix is tolerated')
 check(
-  (await verifyPrivyToken(mint({ payload: { aud: ['test-app-id', 'other'] } }))).userId === 'did:privy:test-user',
+  (await verifyPrivyToken(mint({ payload: { aud: [APP_ID, 'other'] } }))).userId === 'did:privy:test-user',
   'an audience array containing the app id is accepted',
 )
 
@@ -81,10 +84,17 @@ await rejects(mint({ payload: { sub: '' } }), 'empty subject')
 await rejects('not.a.token', 'unparseable token')
 await rejects('two.parts', 'wrong number of segments')
 
-console.log('\n[3] Without an app id nothing verifies, rather than defaulting to trust')
+console.log('\n[3] Without a usable app id nothing verifies, rather than defaulting to trust')
 delete process.env.NEXT_PUBLIC_PRIVY_APP_ID
 await rejects(mint(), 'unconfigured deployment')
-process.env.NEXT_PUBLIC_PRIVY_APP_ID = 'test-app-id'
+
+// A truncated id is a different failure from an absent one, and says so: handed to the SDK it
+// would throw while the provider mounts, which during a build surfaces on an unrelated page.
+process.env.NEXT_PUBLIC_PRIVY_APP_ID = 'cmtruncated'
+await rejects(mint(), 'app id of the wrong length')
+
+process.env.NEXT_PUBLIC_PRIVY_APP_ID = APP_ID
+check((await verifyPrivyToken(mint())).userId === 'did:privy:test-user', 'and works again once corrected')
 
 console.log(failures === 0 ? '\nAll Privy token checks passed.\n' : `\n${failures} check(s) failed.\n`)
 process.exit(failures === 0 ? 0 : 1)

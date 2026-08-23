@@ -185,6 +185,7 @@ npm run check:escrow-id  # pins the app's id derivation to the contract's
 npm run check:adapters   # pins the chain abstraction to the contract, and to honest availability
 npm run check:privy      # pins access-token verification — forgeries, wrong app, expiry
 npm run check            # typecheck + all three of the above
+npm run privy:probe      # ask Privy for the exact OAuth callback URL to register with X
 
 # Needs `npm run build` and a database; stands in for Privy's API only, everything else is real.
 npm run e2e:privy        # sign-in -> account -> assigned wallet -> session cookie
@@ -245,6 +246,28 @@ Required to enable sign-in: `AUTH_SECRET`, `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_AP
 Privy dashboard, enable Twitter/X as a login method, turn on Ethereum embedded wallets, and add
 your origin to the allowed domains. Until they are set, `/login` says so plainly and no part of the
 UI pretends a wallet exists.
+
+### The X (Twitter) callback URL
+
+Privy owns the OAuth handshake end to end. Vaulted never sees an authorization code, holds no X
+credentials, and has no OAuth route — the browser calls `POST auth.privy.io/api/v1/oauth/init`,
+Privy's backend builds the X authorize URL, X redirects to **Privy**, and Privy exchanges the code
+with the X client secret it holds. So the callback URL registered in the X Developer Portal must be
+**Privy's**, not one of ours. A URL pointing at this app will make X refuse the authorization
+request before Privy is ever involved, which X reports as "You weren't able to give access to the
+App."
+
+That URL is built by Privy's backend, so it is not in this repo or in the SDK. Ask Privy for it:
+
+```bash
+npm run privy:probe -- --redirect-to https://your-domain
+```
+
+It makes the same `oauth/init` call the browser makes and prints the authorize URL's parameters —
+`redirect_uri` (register that exact string with X), `client_id` (confirm it is your X app) and
+`scope` (confirm your app's permission level covers it). Nothing is completed and no account is
+touched. If Privy refuses the call, that is the answer too: your origin is missing from the app's
+allowed domains, or X is not enabled as a login method.
 
 Three deployment details that are easy to get wrong:
 
