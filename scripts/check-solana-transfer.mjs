@@ -20,6 +20,9 @@ import {
 } from '@solana/spl-token'
 import bs58 from 'bs58'
 import { base58Decode, base58Encode, isSolanaAddress, isSolanaSignature } from '../lib/vaulted/solana.ts'
+import { prepareTokenTransfer, SolanaTransferError } from '../lib/vaulted/server/solana-transfer.ts'
+import { VAULTED_CHAINS } from '../lib/vaulted/registry.ts'
+import { readWithDeadline } from '../lib/vaulted/adapters/index.ts'
 
 let passed = 0
 let failed = 0
@@ -137,6 +140,72 @@ const address = payer.toBase58()
 check('a generated wallet address round-trips', base58Encode(base58Decode(address)) === address)
 check('and is recognised as an address', isSolanaAddress(address))
 check('an EVM address is never mistaken for one', !isSolanaAddress('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'))
+
+/* ------------------------------------------------------------------ hangs and timeouts */
+
+section('readWithDeadline actually enforces its deadline, not just the happy path')
+
+/*
+ * The RFC 5737 check below proved the failure is reported honestly, but this sandbox's network
+ * rejects the unroutable address immediately rather than truly stalling, so it never exercises the
+ * timeout itself. A promise that never settles does, deterministically and with no network
+ * involved: this is the exact mechanism `prepareTokenTransfer` now relies on to cap a stalled RPC.
+ */
+{
+  const neverResolves = new Promise(() => {})
+  const startedAt = Date.now()
+  const result = await readWithDeadline(() => neverResolves, 300)
+  const elapsedMs = Date.now() - startedAt
+
+  check('it returns rather than hanging on a promise that never settles', result.ok === false)
+  check(`close to the requested deadline (took ${elapsedMs}ms of a 300ms budget)`, elapsedMs < 1_000)
+  check('and says why, so the caller can report something other than "unknown error"', /did not respond/i.test(result.reason ?? ''))
+}
+
+section('An unreachable RPC never hangs the endpoint (nor the popup waiting on it)')
+
+/*
+ * The bug this pins: `prepareTokenTransfer` used to call `connection.getTokenAccountBalance` and
+ * `connection.getLatestBlockhash` with no deadline of their own. `Connection` doesn't time out on
+ * its own, so a stalled RPC used to stall this function indefinitely — which is what the "pay"
+ * button waits on before it even asks the wallet to open its approval screen. From the outside
+ * that reads as "the popup is slow" or "the popup never loads", regardless of the user's own
+ * connection, because the popup is never reached at all.
+ *
+ * 192.0.2.0/24 is reserved by RFC 5737 for documentation and is never routed, so this is a real
+ * network attempt against an address guaranteed not to answer — not a mock standing in for one.
+ */
+const solanaChain = VAULTED_CHAINS.find((chain) => chain.family === 'svm')
+if (!solanaChain) {
+  console.log('  skip: no Solana chain is registered in this build to borrow a token address from')
+} else {
+  const unreachable = { ...solanaChain, rpcUrl: 'http://192.0.2.1:59999' }
+  const startedAt = Date.now()
+  let outcome = null
+  try {
+    await prepareTokenTransfer({
+      chain: unreachable,
+      payer: Keypair.generate().publicKey.toBase58(),
+      recipient: Keypair.generate().publicKey.toBase58(),
+      amount: 1_000_000n,
+    })
+  } catch (error) {
+    outcome = error
+  }
+  const elapsedMs = Date.now() - startedAt
+
+  check('it gives up rather than hanging (well under a minute)', elapsedMs < 55_000)
+  check(
+    `and does so close to the 8s deadline, not some unrelated OS timeout (took ${(elapsedMs / 1000).toFixed(1)}s)`,
+    elapsedMs < 15_000,
+  )
+  check('it reports a SolanaTransferError, not an unhandled network exception', SolanaTransferError.is(outcome))
+  check(
+    'and the message says the network could not be reached, not that the wallet is empty',
+    /could not be reached/i.test(outcome?.message ?? '') && !/holds no/i.test(outcome?.message ?? ''),
+  )
+  check('served as a 502, meaning "try again", not a 409 meaning "your balance is short"', outcome?.status === 502)
+}
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed === 0 ? 0 : 1)

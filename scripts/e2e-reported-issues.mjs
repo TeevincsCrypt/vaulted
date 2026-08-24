@@ -10,10 +10,12 @@
  *   3. "Secure the budget" never leads to a page that can only say escrow is unavailable.
  *   4. Solana can send: Privy has an RPC to broadcast through, and the proxy behind it works.
  *
- * Prerequisites: `npm run build`, DATABASE_URL set, Playwright available.
+ * Prerequisites: DATABASE_URL set, Playwright available. This script builds its own copy of the
+ * app with `NEXT_PUBLIC_PRIVY_APP_ID` baked in — see the note above the build step for why an
+ * ambient `.next` from some other build cannot be reused here.
  * Run: npm run e2e:issues
  */
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHmac } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -100,9 +102,32 @@ const worker = await prisma.account.create({ data: {
 const clientCookie = sessionValue(client)
 const workerCookie = sessionValue(worker)
 
+const RUNTIME_ENV = {
+  ...process.env,
+  AUTH_SECRET,
+  NEXT_PUBLIC_PRIVY_APP_ID: PRIVY_APP_ID,
+  NODE_ENV: 'production',
+}
+
+/*
+ * `NEXT_PUBLIC_` variables are inlined at build time into every bundle Next.js produces, server
+ * included — not just the browser one — so setting `NEXT_PUBLIC_PRIVY_APP_ID` only for `next
+ * start` has no effect on a build that was produced without it. Several checks below exist
+ * specifically to exercise the Privy-configured code paths (the in-app Solana pay button, the
+ * export controls in Settings); against a build with no app id baked in they still pass, but
+ * vacuously — the condition they are meant to test never becomes true. Building it here removes
+ * that trap regardless of what `.next` happened to be sitting on disk already.
+ */
+console.log('Building the app with a Privy app id baked in…')
+const build = spawnSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'inherit', env: RUNTIME_ENV })
+if (build.status !== 0) {
+  console.error('The build failed — see output above.')
+  process.exit(1)
+}
+
 const app = spawn('npx', ['next', 'start', '-p', String(PORT)], {
   cwd: ROOT, detached: true,
-  env: { ...process.env, AUTH_SECRET, NEXT_PUBLIC_PRIVY_APP_ID: PRIVY_APP_ID, NODE_ENV: 'production' },
+  env: RUNTIME_ENV,
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 const log = []
@@ -285,6 +310,51 @@ try {
   check(signedOut.status === 401, `withdraw refuses a signed-out caller (${signedOut.status})`)
   const notMine = await api('/api/solana/transfer', { cookie: workerCookie, method: 'POST', body: { requestId: jobView.payment.id } })
   check(notMine.status === 400, `paying your own request is refused (${notMine.status})`)
+
+  /*
+    The endpoint the "pay" and "send" buttons actually call must never hang: it is what stands
+    between the click and the wallet's approval screen appearing, and a stall here is exactly what
+    reads as "the popup is slow" or "the popup doesn't load" — regardless of the payer's own
+    connection, since the popup is never asked to open at all until this responds. Outbound Solana
+    is blocked from this sandbox, so the call is expected to fail; what matters is that it fails
+    fast and honestly rather than hanging until something else times out.
+  */
+  const buildStartedAt = Date.now()
+  const build = await api('/api/solana/transfer', { cookie: clientCookie, method: 'POST', body: { requestId: jobView.payment.id } })
+  const buildElapsedMs = Date.now() - buildStartedAt
+  const buildBody = await build.json().catch(() => ({}))
+  check(buildElapsedMs < 30_000, `building the transaction never hangs (took ${(buildElapsedMs / 1000).toFixed(1)}s)`)
+  check(
+    build.status === 200 || /could not be reached|unreachable/i.test(buildBody.error ?? ''),
+    `either it succeeds, or it fails with an honest reason rather than a generic 500 (${build.status}: ${buildBody.error ?? 'no body'})`,
+  )
+
+  step(5, 'the Solana private key can be exported, same as the EVM one')
+
+  /*
+    What this can and cannot prove here: this sandbox cannot reach Privy at all, so there is no way
+    to hold a genuine, browser-side Privy session — this test's own `vaulted_session` cookie
+    authenticates it to Vaulted, but Privy's own SDK never sees a signed-in user or a loaded
+    wallet, on either rail. Both export buttons are therefore expected to render in their disabled
+    "no wallet loaded" state, same as the EVM one always has. What is actually new, and what this
+    proves, is that the Solana control exists at all, is wired the same way as the EVM one, and is
+    a genuinely separate control — not that either can complete a live export, which no automated
+    check running here ever could.
+  */
+  await page.goto(`${APP}/settings`, { waitUntil: 'networkidle', timeout: 45_000 })
+  const settingsText = await page.locator('body').innerText()
+  check(/No EVM wallet to export yet/i.test(settingsText), 'the EVM export control renders (unloaded, as expected here)')
+  check(/No Solana wallet to export yet/i.test(settingsText),
+    'and a distinct Solana export control now exists alongside it — this is the fix')
+
+  const evmExportControl = page.getByRole('button', { name: /No EVM wallet to export yet/i })
+  const solanaExportControl = page.getByRole('button', { name: /No Solana wallet to export yet/i })
+  check(await evmExportControl.count() === 1, 'exactly one EVM export control')
+  check(await solanaExportControl.count() === 1, 'exactly one Solana export control')
+  check(
+    (await evmExportControl.first().textContent()) !== (await solanaExportControl.first().textContent()),
+    'and they are two distinct controls, not the same button rendered twice',
+  )
 
   await browser.close()
   console.log(failures === 0 ? '\nAll reported-issue checks passed.\n' : `\n${failures} check(s) failed.\n`)

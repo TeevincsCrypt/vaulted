@@ -35,11 +35,15 @@ function useSolanaSend() {
 
   return {
     available: ready && wallets.length > 0,
+
     /**
-     * Asks `endpoint` for an unsigned transaction, has the user sign and send it, and returns the
-     * base58 signature.
+     * Asks `endpoint` for an unsigned transaction. Split out from signing so a caller can move the
+     * button to "waiting for your approval" the instant this resolves, rather than leaving it
+     * saying "preparing" straight through the part where Privy's approval screen is already open
+     * and waiting on the person — which read as the popup being slow or never arriving, when it
+     * had arrived and the button just never said so.
      */
-    async send(endpoint: string, payload: Record<string, unknown>): Promise<string> {
+    async build(endpoint: string, payload: Record<string, unknown>): Promise<{ bytes: Uint8Array; payer: string }> {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -47,19 +51,6 @@ function useSolanaSend() {
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error ?? 'Could not build the transaction.')
-
-      /*
-        The signer is matched to the wallet the server built for, never picked here. If some other
-        Solana wallet is loaded in this browser, signing with it would fail — and the failure would
-        be far less clear than saying so.
-      */
-      const wallet = wallets.find((entry) => entry.address === body.payer)
-      if (!wallet) {
-        throw new Error(
-          'The wallet recorded for your account is not loaded in this browser. Sign out and back ' +
-            'in, then try again.',
-        )
-      }
 
       const bytes = Uint8Array.from(atob(body.transaction as string), (character) =>
         character.charCodeAt(0),
@@ -72,6 +63,26 @@ function useSolanaSend() {
       */
       if (bytes.length === 0 || bytes.length > 1232) {
         throw new Error('The server returned a transaction Solana would not accept.')
+      }
+
+      return { bytes, payer: body.payer as string }
+    },
+
+    /**
+     * Hands the transaction to the wallet Vaulted assigned and returns the base58 signature.
+     */
+    async sign(bytes: Uint8Array, payer: string): Promise<string> {
+      /*
+        The signer is matched to the wallet the server built for, never picked here. If some other
+        Solana wallet is loaded in this browser, signing with it would fail — and the failure would
+        be far less clear than saying so.
+      */
+      const wallet = wallets.find((entry) => entry.address === payer)
+      if (!wallet) {
+        throw new Error(
+          'The wallet recorded for your account is not loaded in this browser. Sign out and back ' +
+            'in, then try again.',
+        )
       }
 
       /*
@@ -120,7 +131,7 @@ export function SolanaPayButton({
   onUnavailable?: (unavailable: boolean) => void
   disabled?: boolean
 }) {
-  const { available, send } = useSolanaSend()
+  const { available, build, sign } = useSolanaSend()
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -134,7 +145,9 @@ export function SolanaPayButton({
     setError(null)
     try {
       setPhase('building')
-      const signature = await send('/api/solana/transfer', { requestId })
+      const { bytes, payer } = await build('/api/solana/transfer', { requestId })
+      setPhase('signing')
+      const signature = await sign(bytes, payer)
       setPhase('verifying')
       await onSignature(signature)
     } catch (cause) {
@@ -173,7 +186,7 @@ export function SolanaWithdraw({
   available: string | null
   onSent: () => void
 }) {
-  const { available: canSign, send } = useSolanaSend()
+  const { available: canSign, build, sign } = useSolanaSend()
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -203,10 +216,12 @@ export function SolanaWithdraw({
     setSignature(null)
     try {
       setPhase('building')
-      const result = await send('/api/solana/withdraw', {
+      const { bytes, payer } = await build('/api/solana/withdraw', {
         to: to.trim(),
         amount: base.toString(),
       })
+      setPhase('signing')
+      const result = await sign(bytes, payer)
       setSignature(result)
       setAmount('')
       onSent()

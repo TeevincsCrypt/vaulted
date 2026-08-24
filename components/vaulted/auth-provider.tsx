@@ -1,9 +1,14 @@
 'use client'
 
 import { getAccessToken, useExportWallet, useLogin, usePrivy, useWallets } from '@privy-io/react-auth'
+import {
+  useExportWallet as useSolanaExportWallet,
+  useWallets as useSolanaWallets,
+} from '@privy-io/react-auth/solana'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { readableError } from '@/lib/vaulted/client'
 import { PRIVY_APP_ID } from '@/lib/vaulted/privy'
+import { VAULTED_CHAINS } from '@/lib/vaulted/registry'
 import { useSession } from './session-provider'
 
 /**
@@ -63,6 +68,10 @@ const SILENT_LOGIN_ERRORS = new Set(['exited_auth_flow', 'exited_link_flow', 'us
  */
 const READY_TIMEOUT_MS = 12_000
 
+/** Same lookup {@link recordSolanaWallet} uses server-side, so the two never disagree on which chain "the" Solana wallet is filed under. */
+const SOLANA_CHAIN_KEY =
+  VAULTED_CHAINS.find((chain) => chain.family === 'svm' && chain.tier === 'production')?.key ?? null
+
 const SDK_UNREACHABLE =
   'Privy did not load, so sign-in cannot start. Check that auth.privy.io is reachable from this ' +
   'browser — an extension, a network filter or a content-security policy will block it.'
@@ -87,6 +96,14 @@ type AuthValue = {
    * the user's, and they can walk away with it.
    */
   exportWallet: (() => Promise<void>) | null
+  /** The embedded Solana wallet's address, once Privy has provisioned it. */
+  solanaWalletAddress: string | null
+  /**
+   * Same export flow as {@link exportWallet}, for the Solana wallet. A separate hook because Privy
+   * ships EVM and Solana export as two different hooks with two different iframes — there is no
+   * single "export" that covers both rails.
+   */
+  exportSolanaWallet: (() => Promise<void>) | null
 }
 
 const UNCONFIGURED: AuthValue = {
@@ -99,6 +116,8 @@ const UNCONFIGURED: AuthValue = {
   walletAddress: null,
   walletPending: false,
   exportWallet: null,
+  solanaWalletAddress: null,
+  exportSolanaWallet: null,
 }
 
 const AuthContext = createContext<AuthValue>(UNCONFIGURED)
@@ -123,6 +142,8 @@ function PrivyAuthProvider({ children }: { children: ReactNode }) {
   const { ready, authenticated, user, logout } = usePrivy()
   const { wallets } = useWallets()
   const { exportWallet } = useExportWallet()
+  const { wallets: solanaWallets } = useSolanaWallets()
+  const { exportWallet: exportSolanaWalletRaw } = useSolanaExportWallet()
   const { account, refresh, clearSession } = useSession()
 
   const [syncing, setSyncing] = useState(false)
@@ -145,6 +166,19 @@ function PrivyAuthProvider({ children }: { children: ReactNode }) {
 
   const embedded = wallets.find((wallet) => wallet.walletClientType === 'privy') ?? null
   const walletAddress = embedded?.address ?? null
+
+  /*
+    Matched against the address the server already recorded for this account, rather than by
+    asking which connected wallet "is Privy's" — the wallet-standard type Privy exposes here does
+    not carry that flag in its public shape, and matching against server state is the same rule
+    the rest of this app already follows: the wallet that matters is the one on file, not whichever
+    one the browser happens to be holding.
+  */
+  const recordedSolanaAddress = SOLANA_CHAIN_KEY
+    ? account?.wallets.find((wallet) => wallet.chainKey === SOLANA_CHAIN_KEY)?.address ?? null
+    : null
+  const solanaEmbedded = solanaWallets.find((wallet) => wallet.address === recordedSolanaAddress) ?? null
+  const solanaWalletAddress = solanaEmbedded?.address ?? null
 
   /**
    * What has already been pushed to the server. The wallet address is part of the key because
@@ -228,8 +262,24 @@ function PrivyAuthProvider({ children }: { children: ReactNode }) {
       walletAddress,
       walletPending: authenticated && !walletAddress,
       exportWallet: walletAddress ? () => exportWallet({ address: walletAddress }) : null,
+      solanaWalletAddress,
+      exportSolanaWallet: solanaWalletAddress
+        ? () => exportSolanaWalletRaw({ address: solanaWalletAddress })
+        : null,
     }),
-    [ready, login, signOut, syncing, error, loadTimedOut, walletAddress, authenticated, exportWallet],
+    [
+      ready,
+      login,
+      signOut,
+      syncing,
+      error,
+      loadTimedOut,
+      walletAddress,
+      authenticated,
+      exportWallet,
+      solanaWalletAddress,
+      exportSolanaWalletRaw,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

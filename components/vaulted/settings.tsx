@@ -21,25 +21,29 @@ import { SignInButton } from './wallet'
 export function Settings() {
   const { account } = useSession()
   const { address } = useAccount()
-  const { configured, walletAddress, walletPending, exportWallet } = useVaultedAuth()
+  const { configured, walletAddress, walletPending, exportWallet, solanaWalletAddress, exportSolanaWallet } =
+    useVaultedAuth()
 
-  const [exporting, setExporting] = useState(false)
+  const [exportingEvm, setExportingEvm] = useState(false)
+  const [exportingSolana, setExportingSolana] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const recorded = account?.wallets ?? []
   // The signer wagmi is actually holding, which is what will sign the next transaction.
   const live = address ?? walletAddress
 
-  async function runExport() {
-    if (!exportWallet) return
-    setExporting(true)
+  async function runExport(which: 'evm' | 'solana') {
+    const fn = which === 'evm' ? exportWallet : exportSolanaWallet
+    const setBusy = which === 'evm' ? setExportingEvm : setExportingSolana
+    if (!fn) return
+    setBusy(true)
     setError(null)
     try {
-      await exportWallet()
+      await fn()
     } catch (cause) {
       setError(readableError(cause))
     } finally {
-      setExporting(false)
+      setBusy(false)
     }
   }
 
@@ -47,8 +51,8 @@ export function Settings() {
     <AppShell>
       <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Your wallet</h1>
       <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-        Every Vaulted account has one wallet, assigned when you sign in. People pay{' '}
-        <span className="text-foreground">@{account?.name}</span> and it lands here.
+        Every Vaulted account gets a wallet on each network it supports, assigned when you sign in.
+        People pay <span className="text-foreground">@{account?.name}</span> and it lands here.
       </p>
 
       <div className="mt-8 grid items-start gap-5 lg:grid-cols-2">
@@ -137,13 +141,37 @@ export function Settings() {
             <Notice tone="warn">
               Sign-in is not configured on this deployment, so no wallet has been assigned.
             </Notice>
-          ) : exportWallet ? (
-            <Button size="lg" full variant="secondary" busy={exporting} onClick={runExport}>
-              <Download size={16} />
-              Export private key
-            </Button>
           ) : (
-            <Notice tone="warn">There is no wallet to export yet.</Notice>
+            <div className="flex flex-col gap-3">
+              {/*
+                Two buttons, not one: Privy ships EVM and Solana export as separate flows with
+                separate iframes, because they are different key material on different curves.
+                Each is gated on that rail's own wallet existing, so pressing one never opens a
+                modal for a key that has not been provisioned.
+              */}
+              <Button
+                size="lg"
+                full
+                variant="secondary"
+                busy={exportingEvm}
+                disabled={!exportWallet}
+                onClick={() => runExport('evm')}
+              >
+                <Download size={16} />
+                {exportWallet ? 'Export EVM private key' : 'No EVM wallet to export yet'}
+              </Button>
+              <Button
+                size="lg"
+                full
+                variant="secondary"
+                busy={exportingSolana}
+                disabled={!exportSolanaWallet}
+                onClick={() => runExport('solana')}
+              >
+                <Download size={16} />
+                {exportSolanaWallet ? 'Export Solana private key' : 'No Solana wallet to export yet'}
+              </Button>
+            </div>
           )}
 
           <p className="mt-4 flex items-start gap-2 text-[11.5px] leading-relaxed text-muted-foreground">

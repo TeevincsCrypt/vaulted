@@ -11,10 +11,11 @@
  * What this pins is the property that matters: the browser supplies a token and nothing else, and
  * the handle and wallet address are taken from what the server reads back with the app secret.
  *
- * Prerequisites: `npm run build`, and DATABASE_URL set (or in .env.local).
+ * Prerequisites: DATABASE_URL set (or in .env.local). This script builds its own copy of the app
+ * before starting it — see the note above the build step for why that is not optional here.
  * Run: npm run e2e:privy
  */
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createSign, generateKeyPairSync } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -185,6 +186,40 @@ await new Promise((resolve) => mock.listen(MOCK_PORT, '127.0.0.1', resolve))
 
 /* --------------------------------------------------------------------- the app */
 
+const RUNTIME_ENV = {
+  ...process.env,
+  AUTH_SECRET: 'e2e-auth-secret-that-is-comfortably-long-enough',
+  NEXT_PUBLIC_PRIVY_APP_ID: APP_ID,
+  PRIVY_APP_SECRET: APP_SECRET,
+  // Deliberately no verification key: the SDK must fetch it from app settings, as in production.
+  PRIVY_API_URL: `http://127.0.0.1:${MOCK_PORT}`,
+}
+
+/*
+ * `NEXT_PUBLIC_` variables are inlined into the compiled output at build time — including the
+ * server bundle, not only the browser one — so passing `NEXT_PUBLIC_PRIVY_APP_ID` to `next start`
+ * has no effect on a build that was produced with a different value already baked in. Every check
+ * below hinges on the server checking the JWT's audience against exactly this `APP_ID`, so this
+ * cannot reuse whatever `.next` happens to be sitting on disk from an unrelated build (a normal
+ * deployment build, for instance, has a real app id baked in, and every "sign-in accepted" check
+ * here would fail against it with a confusing, unrelated-looking 401). Building it here, with this
+ * exact env, is what makes the script correct regardless of what ran before it.
+ */
+console.log('Building the app with the e2e Privy app id baked in…')
+// The same build the other scripts assume was already run — reused here rather than a bare `next
+// build`, so this is self-contained without silently skipping the migration check the real build
+// performs.
+const build = spawnSync('npm', ['run', 'build'], {
+  cwd: ROOT,
+  stdio: 'inherit',
+  env: RUNTIME_ENV,
+})
+if (build.status !== 0) {
+  console.error('The build failed — see output above.')
+  await new Promise((resolve) => mock.close(resolve))
+  process.exit(1)
+}
+
 // Its own process group, and the Next binary directly rather than through npx: `next start` forks
 // a server child, and killing only the wrapper would leave it holding the port — which then makes
 // the next run silently talk to a stale server instead of the one it just configured.
@@ -192,14 +227,7 @@ const app = spawn(path.join(ROOT, 'node_modules', '.bin', 'next'), ['start', '-p
   cwd: ROOT,
   stdio: ['ignore', 'pipe', 'pipe'],
   detached: true,
-  env: {
-    ...process.env,
-    AUTH_SECRET: 'e2e-auth-secret-that-is-comfortably-long-enough',
-    NEXT_PUBLIC_PRIVY_APP_ID: APP_ID,
-    PRIVY_APP_SECRET: APP_SECRET,
-    // Deliberately no verification key: the SDK must fetch it from app settings, as in production.
-    PRIVY_API_URL: `http://127.0.0.1:${MOCK_PORT}`,
-  },
+  env: RUNTIME_ENV,
 })
 const appLog = []
 app.stdout.on('data', (chunk) => appLog.push(chunk.toString()))

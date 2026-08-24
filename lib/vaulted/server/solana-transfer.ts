@@ -9,6 +9,7 @@ import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token'
+import { readWithDeadline } from '../adapters'
 import { solanaRpcUrl } from '../solana'
 import type { VaultedChain } from '../registry'
 
@@ -96,21 +97,54 @@ export async function prepareTokenTransfer(input: {
   }
 
   /*
-    Check the source account before building anything. Letting a transaction go out that the
-    network will reject wastes the user's time and, worse, teaches them to ignore failures. A
-    balance that is simply too small is the common case and deserves a plain sentence, not a
-    simulation error.
+    Check the source account before building anything, and fetch the blockhash alongside it —
+    these are independent reads, and doing them one after another was pure dead time sitting
+    between the user pressing "pay" and the wallet's approval screen even appearing. Both are also
+    given a deadline: `Connection` has no timeout of its own, so an RPC that merely stalls used to
+    hang this endpoint (and the button) indefinitely, which is indistinguishable from "broken" no
+    matter how good the user's own connection is.
   */
-  const source = await connection.getTokenAccountBalance(from).catch(() => null)
-  if (!source) {
+  const [balanceRead, blockhashRead] = await Promise.all([
+    readWithDeadline(() => connection.getTokenAccountBalance(from), 8_000),
+    readWithDeadline(() => connection.getLatestBlockhash('confirmed'), 8_000),
+  ])
+
+  if (!blockhashRead.ok) {
+    throw new SolanaTransferError(
+      `Solana could not be reached to prepare this payment (${blockhashRead.reason}). Try again ` +
+        'in a moment.',
+      502,
+    )
+  }
+  const { blockhash, lastValidBlockHeight } = blockhashRead.value
+
+  /*
+    A missing token account and an unreachable RPC both surface as a rejected promise, but they are
+    not the same failure and must not be reported as one: telling someone their wallet is empty
+    when the real story is that Solana timed out sends them chasing a balance that was never the
+    problem. `getTokenAccountBalance` fails a specific, stable way for "this account has never
+    held the token" — anything else here is treated as an outage.
+  */
+  let balance: { amount: string; uiAmountString?: string | null } | null = null
+  if (balanceRead.ok) {
+    balance = balanceRead.value.value
+  } else if (!/could not find account/i.test(balanceRead.reason)) {
+    throw new SolanaTransferError(
+      `Solana could not be reached to check the balance (${balanceRead.reason}). Try again in a ` +
+        'moment.',
+      502,
+    )
+  }
+
+  if (!balance) {
     throw new SolanaTransferError(
       `That wallet holds no ${chain.token.symbol} on ${chain.name}, so there is nothing to send.`,
       409,
     )
   }
-  if (BigInt(source.value.amount) < input.amount) {
+  if (BigInt(balance.amount) < input.amount) {
     throw new SolanaTransferError(
-      `That wallet holds ${source.value.uiAmountString ?? '0'} ${chain.token.symbol}, which is ` +
+      `That wallet holds ${balance.uiAmountString ?? '0'} ${chain.token.symbol}, which is ` +
         'less than this payment. Top it up and try again.',
       409,
     )
@@ -128,8 +162,6 @@ export async function prepareTokenTransfer(input: {
     // this deployment thinks they are.
     createTransferCheckedInstruction(from, mint, to, payer, input.amount, chain.token.decimals),
   ]
-
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed')
 
   const message = new TransactionMessage({
     payerKey: payer,
