@@ -278,6 +278,22 @@ try {
   check(!('error' in rpcBody) || typeof rpcBody.error?.message === 'string',
     'and speaks JSON-RPC either way')
 
+  /*
+    Every method the wallet's approval screen issues before it can render a confirm button must be
+    forwarded. When `getBalance` was missing the modal opened and span forever — the screen
+    swallows that rejection and leaves its loading flag set, so there was no error to see and it
+    looked exactly like a slow connection. Asserted here against the live route, not only in the
+    static allowlist check, so the running server is what is proven.
+  */
+  for (const method of ['getBalance', 'getAccountInfo', 'getMultipleAccounts', 'simulateTransaction', 'getFeeForMessage']) {
+    const probe = await api('/api/solana/rpc', { method: 'POST', body: { jsonrpc: '2.0', id: 9, method, params: [] } })
+    const probeBody = await probe.json().catch(() => ({}))
+    check(
+      !/not proxied/i.test(probeBody.error?.message ?? ''),
+      `the approval screen's "${method}" is forwarded, not refused`,
+    )
+  }
+
   const rpcBlocked = await api('/api/solana/rpc', { method: 'POST', body: { jsonrpc: '2.0', id: 2, method: 'requestAirdrop', params: [] } })
   const blockedBody = await rpcBlocked.json()
   check(rpcBlocked.status === 400 && /not proxied/i.test(blockedBody.error?.message ?? ''),

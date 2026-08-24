@@ -18,15 +18,41 @@ import { solanaRpcUrl } from '@/lib/vaulted/solana'
  * route has no way to mark anything paid.
  */
 
-/** Everything `sendAndConfirmTransaction` and preflight need, and nothing else. */
+/**
+ * Every method the signing path actually issues, and nothing else.
+ *
+ * This list is not guesswork and must not be trimmed by eye. The wallet's approval screen —
+ * Privy's, rendered in its own iframe — does real work before it can show anybody a confirm
+ * button: it decodes the transaction, resolves any address lookup tables, estimates the fee,
+ * simulates the call and reads the signer's balance. Every one of those is an RPC round trip
+ * through here.
+ *
+ * Getting this wrong does not fail loudly. An earlier version of this list omitted `getBalance`,
+ * `getAccountInfo` and `getMultipleAccounts`; the approval screen swallows the balance read's
+ * rejection (`.catch(console.error)`) and simply leaves its own loading flag set, so the modal
+ * opened and then span forever with no error anywhere the user could see. It reads exactly like a
+ * slow network, which is the last thing it is.
+ *
+ * `npm run check:solana-rpc` re-derives the required set from the installed Privy and
+ * `@solana/accounts` bundles and fails if this list no longer covers it, so a Privy upgrade that
+ * starts calling something new cannot quietly reintroduce that.
+ */
 const ALLOWED = new Set([
+  // Broadcasting, and confirming what was broadcast.
   'sendTransaction',
-  'simulateTransaction',
-  'getLatestBlockhash',
   'getSignatureStatuses',
+  'getTransaction',
+  // Building and checking a transaction before it is signed.
+  'getLatestBlockhash',
+  'simulateTransaction',
   'getFeeForMessage',
   'getGenesisHash',
-  'getTransaction',
+  // What the approval screen reads to describe the transaction to the person approving it:
+  // the signer's balance, and the accounts (including address lookup tables) it touches.
+  'getBalance',
+  'getAccountInfo',
+  'getMultipleAccounts',
+  // Liveness, used by clients to decide whether the endpoint is worth talking to.
   'getEpochInfo',
   'getHealth',
 ])
