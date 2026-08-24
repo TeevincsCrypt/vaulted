@@ -9,6 +9,9 @@ const path = require('node:path')
 require('dotenv').config({ path: path.join(__dirname, '.env') })
 require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') })
 
+// See the file's own header: makes RPC calls respect HTTPS_PROXY, a no-op when it is unset.
+require('./scripts/http-proxy-shim')
+
 const SOLC_VERSION = '0.8.28'
 const SOLC_LONG_VERSION = '0.8.28+commit.7893614a'
 
