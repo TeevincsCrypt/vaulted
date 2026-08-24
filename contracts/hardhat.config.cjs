@@ -53,6 +53,19 @@ module.exports = {
   },
   networks: {
     hardhat: { chainId: 31337 },
+    /*
+      Base Mainnet. The network key must be exactly `base`: hardhat-verify ships a built-in chain
+      config under that name, and renaming it would mean hand-maintaining the Basescan API URLs.
+
+      Real money. `accounts` stays empty unless DEPLOYER_PRIVATE_KEY is set, so a mistyped command
+      cannot silently pick up a key from somewhere else, and every deploy against this network is a
+      deliberate act.
+    */
+    base: {
+      url: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+      chainId: 8453,
+      accounts,
+    },
     baseSepolia: {
       url: process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org',
       chainId: 84532,

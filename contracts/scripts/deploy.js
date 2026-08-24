@@ -155,10 +155,16 @@ async function main() {
   if (chainId !== 31337) {
     console.log('\nNext steps:')
     console.log(`  1. Verify:  npx hardhat verify --network ${network.name} ${address} ${onChainToken} ${onChainArbiter}`)
+    /*
+      Per-chain variable, not the old single-chain `NEXT_PUBLIC_ESCROW_ADDRESS`. The registry reads
+      `NEXT_PUBLIC_ESCROW_ADDRESS_<chainId>` and turns that chain's escrow capability on from it;
+      printing the old name here sent operators to a variable nothing reads any more.
+    */
     console.log(`  2. Add to the app environment:`)
-    console.log(`       NEXT_PUBLIC_CHAIN_ID=${chainId}`)
-    console.log(`       NEXT_PUBLIC_ESCROW_ADDRESS=${address}`)
-    console.log(`       NEXT_PUBLIC_TOKEN_ADDRESS=${onChainToken}`)
+    console.log(`       NEXT_PUBLIC_ESCROW_ADDRESS_${chainId}=${address}`)
+    console.log(`\n     The registry derives everything else — token, decimals, explorer — from the`)
+    console.log(`     deployment record written above, so no other variable is required to turn`)
+    console.log(`     escrow on for this chain.`)
   }
 
   return record
