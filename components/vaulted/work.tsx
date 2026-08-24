@@ -23,7 +23,10 @@ type WorkRow = {
     description: string
     budgetAmount: string
     token: { symbol: string; decimals: number }
+    chainKey: string
     chainName: string
+    escrowCapable: boolean
+    payment: { id: string; amount: string; currency: string; status: string } | null
     status: string
     deadline: number | null
     clientAddress: string
@@ -195,6 +198,37 @@ function WorkCard({ row, highlight, onChanged }: { row: WorkRow; highlight?: boo
             ) : (
               <Notice tone="warn" icon={<AlertTriangle size={15} />}>
                 {escrow.reason ?? 'The chain could not be read just now.'}
+              </Notice>
+            )
+          ) : !job.escrowCapable ? (
+            /*
+              Offering "secure the budget" here used to send the worker to a page that could only
+              tell them escrow was unavailable, because this network has no contract to raise one
+              against. The honest version says how this job is actually paid.
+            */
+            job.payment?.status === 'PAID' ? (
+              <Notice tone="good" icon={<CheckCircle2 size={15} />} title="Budget paid">
+                The client paid this directly and the transaction was read back off {job.chainName}.
+              </Notice>
+            ) : job.payment ? (
+              <Notice tone="neutral" icon={<Clock size={15} />} title="Waiting for the client to pay">
+                {job.chainName} has no escrow contract, so nothing is held: the client pays{' '}
+                {formatAmount(job.payment.amount, job.token.decimals)} {job.payment.currency}{' '}
+                straight to your wallet and it is yours as soon as it arrives. Nothing is protected
+                in the meantime.
+                <Link
+                  href={`/pay/${job.payment.id}`}
+                  className="mt-3 inline-flex items-center gap-1.5 text-[13px]"
+                  style={{ color: 'var(--vt-accent)' }}
+                >
+                  See the payment <ArrowUpRight size={14} />
+                </Link>
+              </Notice>
+            ) : (
+              <Notice tone="warn" icon={<AlertTriangle size={15} />} title="No payment raised yet">
+                {job.chainName} has no escrow contract, so this budget is paid directly — but no
+                payment has been raised for it. Reload in a moment; if it does not appear, your{' '}
+                {job.chainName} wallet may not be recorded yet, so sign out and back in.
               </Notice>
             )
           ) : (

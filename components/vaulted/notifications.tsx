@@ -53,7 +53,23 @@ export function NotificationBell() {
     if (!account) return
     void load()
     const timer = setInterval(load, 30_000)
-    return () => clearInterval(timer)
+
+    /*
+      A poll alone leaves a gap that is exactly the shape of the complaint: come back to a tab that
+      has been sitting in the background and the badge is up to half a minute stale, or older still
+      if the browser throttled the timer — which background tabs routinely do. Checking on focus
+      means the answer is current by the time anybody is actually looking at it.
+    */
+    const onFocus = () => void load()
+    const onVisible = () => document.visibilityState === 'visible' && void load()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [account, load])
 
   useEffect(() => {

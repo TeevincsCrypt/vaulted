@@ -28,7 +28,8 @@
     "check:payments": "tsx scripts/check-payment-verification.mjs",
     "check:solana": "tsx scripts/check-solana-transfer.mjs",
     "e2e:payments": "tsx scripts/e2e-payment-requests.mjs",
-    "smoke:ui": "node scripts/smoke-ui.mjs"
+    "smoke:ui": "node scripts/smoke-ui.mjs",
+    "e2e:issues": "tsx scripts/e2e-reported-issues.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
@@ -38,6 +39,7 @@
     "@solana-program/memo": "^0.10.0",
     "@solana-program/system": "^0.10.0",
     "@solana-program/token": "^0.9.0",
+    "@solana/kit": "^5.5.1",
     "@solana/spl-token": "^0.4.9",
     "@solana/web3.js": "^1.98.4",
     "@tanstack/react-query": "^5.101.4",

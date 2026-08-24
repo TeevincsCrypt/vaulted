@@ -20,6 +20,12 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
   const { account } = useSession()
   const [job, setJob] = useState<{ jobId: string; amount: string; description: string; client: string } | null>(null)
   const [jobError, setJobError] = useState<string | null>(null)
+  /*
+    A job on a network with no escrow contract cannot be secured here, and this page used to say
+    only "escrow is unavailable" — a dead end reached from a button that should never have offered
+    it. When that is the case the page explains how the job is actually paid and links to it.
+  */
+  const [directPayment, setDirectPayment] = useState<{ id: string | null } | null>(null)
 
   // When raising the escrow for a job, the terms come from the job itself rather than the form.
   useEffect(() => {
@@ -33,6 +39,10 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
       }
       const body = await response.json()
       if (cancelled) return
+      if (body.escrowCapable === false) {
+        setDirectPayment({ id: body.payment?.id ?? null })
+        return
+      }
       if (body.job.status !== 'ASSIGNED') {
         setJobError('That job has not been assigned, so there is nothing to secure yet.')
         return
@@ -48,6 +58,41 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
       cancelled = true
     }
   }, [jobId])
+
+  if (directPayment) {
+    return (
+      <AppShell>
+        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">This budget is paid directly</h1>
+        <Card className="mt-8 max-w-xl p-7">
+          <p className="text-[14px] leading-relaxed text-muted-foreground">
+            This job is denominated on a network with no escrow contract, so there is no escrow to
+            raise and nothing for you to do here. The client pays the budget straight to your
+            wallet, Vaulted checks the transaction against the network before calling it paid, and
+            the money is yours the moment it lands. Nothing is held, and nothing can be clawed back.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-4">
+            {directPayment.id && (
+              <Link
+                href={`/pay/${directPayment.id}`}
+                className="inline-flex items-center gap-1.5 text-[13.5px]"
+                style={{ color: 'var(--vt-accent)' }}
+              >
+                See the payment <ArrowUpRight size={14} />
+              </Link>
+            )}
+            {jobId && (
+              <Link
+                href={`/jobs/${jobId}`}
+                className="inline-flex items-center gap-1.5 text-[13.5px] text-muted-foreground hover:text-foreground"
+              >
+                Back to the job <ArrowUpRight size={14} />
+              </Link>
+            )}
+          </div>
+        </Card>
+      </AppShell>
+    )
+  }
 
   if (!config) {
     const resolved = getVaultedConfig()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Wallet } from 'lucide-react'
 import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { readableError } from '@/lib/vaulted/client'
@@ -74,7 +74,20 @@ function useSolanaSend() {
         throw new Error('The server returned a transaction Solana would not accept.')
       }
 
-      const { signature } = await signAndSendTransaction({ transaction: bytes, wallet })
+      /*
+        `optimisticBroadcast` returns as soon as the cluster accepts the transaction, rather than
+        waiting on Privy's websocket confirmation. Two reasons. The websocket is a second endpoint
+        that has to be reachable from the browser, and its confirmation wait throws after ten
+        seconds — on a transaction that has *already* been broadcast, so a slow slot would report a
+        successful payment as a failure. And Vaulted does not need Privy's opinion: whether the
+        money moved is settled by reading the transaction back on the server, which is the only
+        thing this app has ever treated as proof.
+      */
+      const { signature } = await signAndSendTransaction({
+        transaction: bytes,
+        wallet,
+        options: { optimisticBroadcast: true },
+      })
       return base58Encode(signature)
     },
   }
@@ -92,17 +105,28 @@ export function SolanaPayButton({
   requestId,
   label,
   onSignature,
+  onUnavailable,
   disabled,
 }: {
   requestId: string
   label: string
   /** Called with the base58 signature. Verification is the caller's to do. */
   onSignature: (signature: string) => Promise<void> | void
+  /**
+   * Told whether the wallet ever loaded. The page wraps this button in a "or pay another way"
+   * divider, and a divider with nothing above it is worse than no divider — it reads as a control
+   * that failed to draw.
+   */
+  onUnavailable?: (unavailable: boolean) => void
   disabled?: boolean
 }) {
   const { available, send } = useSolanaSend()
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    onUnavailable?.(!available)
+  }, [available, onUnavailable])
 
   if (!available) return null
 

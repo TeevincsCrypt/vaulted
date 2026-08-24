@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { formatAmount } from '../format'
+import { getChain } from '../registry'
 import { accountForAddress } from './accounts'
 
 /**
@@ -78,7 +79,19 @@ export async function notifyJobPosted(job: {
 export async function notifyApplicationReceived(job: { id: string; title: string; clientAddress: string }, applicantAddress: string) {
   try {
     const client = await accountForAddress(job.clientAddress)
-    if (!client) return
+    if (!client) {
+      /*
+        The only link from a job to an account is the client's address, so an address with no
+        recorded wallet means nobody can be told. That is a real delivery failure and used to be a
+        silent `return` — the application still arrived, the poster was simply never notified and
+        there was nothing anywhere to say why. Logged loudly so it is diagnosable.
+      */
+      console.error(
+        `[vaulted/notify application] no account owns ${job.clientAddress}, so the poster of ` +
+          `${job.id} could not be notified`,
+      )
+      return
+    }
     const applicant = await accountForAddress(applicantAddress)
     const who = applicant ? `@${applicant.name}` : `${applicantAddress.slice(0, 8)}…`
 
@@ -97,19 +110,45 @@ export async function notifyApplicationReceived(job: { id: string; title: string
   }
 }
 
-export async function notifyHired(job: { id: string; title: string }, applicantAddress: string) {
+/**
+ * Tells the freelancer they were hired, and what happens to the money next.
+ *
+ * Which is not the same on every network, so this does not pretend it is. Where an escrow can be
+ * raised, the next step is theirs and the link goes straight to it. Where none can — Solana, and
+ * Base until the contract is deployed — hiring has already raised a direct payment for the budget,
+ * there is nothing for them to do, and sending them to the escrow page would only show them a
+ * message saying escrow is unavailable.
+ */
+export async function notifyHired(
+  job: { id: string; title: string; chainKey: string },
+  applicantAddress: string,
+) {
   try {
     const applicant = await accountForAddress(applicantAddress)
-    if (!applicant) return
+    if (!applicant) {
+      console.error(
+        `[vaulted/notify hired] no account owns ${applicantAddress}, so the person hired for ` +
+          `${job.id} could not be told`,
+      )
+      return
+    }
+
+    const chain = getChain(job.chainKey)
+    const escrowCapable = chain?.capabilities.escrow ?? false
+
     await create([
       {
         accountId: applicant.id,
         type: 'JOB_HIRED',
         title: 'You were hired',
-        body: `You were accepted for ${job.title}. Raise the escrow so the client can lock the budget.`,
-        // Straight to the step that secures the money, not to a list. The contract makes the payee
-        // the escrow's creator, so this is the freelancer's move and nobody else can make it.
-        href: `/request?job=${job.id}`,
+        body: escrowCapable
+          ? `You were accepted for ${job.title}. Raise the escrow so the client can lock the budget.`
+          : `You were accepted for ${job.title}. ${chain?.name ?? job.chainKey} has no escrow, so ` +
+            'the client pays you directly — the budget is yours as soon as it lands.',
+        // Where an escrow is possible, straight to the step that secures the money: the contract
+        // makes the payee its creator, so this is the freelancer's move and nobody else can make
+        // it. Where it is not, the job page, which shows the payment's real state.
+        href: escrowCapable ? `/request?job=${job.id}` : `/jobs/${job.id}`,
         jobId: job.id,
       },
     ])

@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   const applications = await prisma.jobApplication.findMany({
     where: { applicantAddress: { in: unique.map((a) => getAddress(a)) } },
     orderBy: { createdAt: 'desc' },
-    include: { job: { include: { invoice: true } } },
+    include: { job: { include: { invoice: true, paymentRequest: true } } },
     take: 100,
   })
 
@@ -83,6 +83,20 @@ export async function GET(request: NextRequest) {
           submittedAt: job.submittedAt ? Math.floor(job.submittedAt.getTime() / 1000) : null,
           submissionNote: job.submissionNote,
           submissionLinks: job.submissionLinks,
+          /*
+            Where the network has no escrow, hiring raises a direct payment instead. The worker's
+            page needs it to say what is actually happening, rather than offering to raise an
+            escrow that this network cannot hold.
+          */
+          escrowCapable: chain?.capabilities.escrow ?? false,
+          payment: job.paymentRequest
+            ? {
+                id: job.paymentRequest.id,
+                amount: job.paymentRequest.amount,
+                currency: job.paymentRequest.currency,
+                status: job.paymentRequest.status,
+              }
+            : null,
         },
         escrow,
       }

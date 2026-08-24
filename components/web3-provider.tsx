@@ -1,6 +1,7 @@
 'use client'
 
 import { PrivyProvider, type PrivyClientConfig } from '@privy-io/react-auth'
+import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit'
 import { WagmiProvider as PrivyWagmiProvider, createConfig as createPrivyConfig } from '@privy-io/wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -9,6 +10,7 @@ import { WagmiProvider, createConfig, http } from 'wagmi'
 import { SUPPORTED_CHAINS } from '@/lib/vaulted/chains'
 import { getVaultedConfig, isConfigured } from '@/lib/vaulted/config'
 import { PRIVY_APP_ID } from '@/lib/vaulted/privy'
+import { VAULTED_CHAINS } from '@/lib/vaulted/registry'
 
 /**
  * Wallet and chain plumbing.
@@ -42,6 +44,53 @@ const wagmiConfig = PRIVY_APP_ID
   ? createPrivyConfig({ chains, transports })
   : createConfig({ chains, transports, connectors: [] })
 
+/**
+ * The RPC Privy signs Solana transactions against.
+ *
+ * Without this Privy has no endpoint to broadcast through and throws "No RPC configuration found
+ * for chain solana:mainnet" the moment the user approves — which is exactly what made the pay page
+ * fall over on click.
+ *
+ * It points at Vaulted's own proxy rather than a cluster. Public endpoints refuse browser origins,
+ * and a private one would have to be a `NEXT_PUBLIC_` variable to be reachable here, which is no
+ * longer private. The proxy keeps the endpoint server-side and forwards only the methods a send
+ * needs.
+ *
+ * Built lazily and per-origin, because `window` does not exist while this module is evaluated on
+ * the server and `@solana/kit` wants an absolute URL.
+ */
+function solanaRpcs() {
+  if (typeof window === 'undefined') return undefined
+
+  const clusters = VAULTED_CHAINS.filter((chain) => chain.family === 'svm')
+  if (clusters.length === 0) return undefined
+
+  const entries = clusters.flatMap((chain) => {
+    const key = chain.cluster === 'devnet' ? 'solana:devnet' : 'solana:mainnet'
+    const http = `${window.location.origin}/api/solana/rpc?network=${encodeURIComponent(chain.key)}`
+    return [
+      [
+        key,
+        {
+          rpc: createSolanaRpc(http),
+          /*
+            Never actually connected: every send passes `optimisticBroadcast`, so Privy returns the
+            signature once the cluster accepts it and does not wait on a subscription. Whether the
+            payment happened is settled by reading the transaction back on the server, which is the
+            only thing Vaulted ever treats as proof. The value is required by the config shape.
+          */
+          rpcSubscriptions: createSolanaRpcSubscriptions(
+            http.replace(/^http/, 'ws').replace('/api/solana/rpc', '/api/solana/rpc-subscriptions'),
+          ),
+          blockExplorerUrl: chain.explorerUrl ?? undefined,
+        },
+      ] as const,
+    ]
+  })
+
+  return Object.fromEntries(entries)
+}
+
 const privyConfig: PrivyClientConfig = {
   // X only. There is deliberately no `wallet` method and no wallet list: one account, one wallet,
   // no external connection to choose between.
@@ -62,6 +111,7 @@ const privyConfig: PrivyClientConfig = {
     solana: { createOnLogin: 'all-users' },
   },
   supportedChains: chains,
+  solana: { rpcs: solanaRpcs() },
   ...(active ? { defaultChain: active } : {}),
 }
 

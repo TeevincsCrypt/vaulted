@@ -33,6 +33,10 @@ import { TransactionStatus } from './transaction-status'
  * server decides; until it says so, this page says "checking", not "paid".
  */
 
+/** Roughly twenty seconds of grace, which covers a normal Solana or Base confirmation. */
+const VERIFY_ATTEMPTS = 8
+const VERIFY_INTERVAL_MS = 2_500
+
 type PaymentRequest = {
   id: string
   amount: string
@@ -172,6 +176,7 @@ function PayControls({
 
   const [reference, setReference] = useState('')
   const [checking, setChecking] = useState(false)
+  const [solanaWalletMissing, setSolanaWalletMissing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingNote, setPendingNote] = useState<string | null>(null)
 
@@ -196,27 +201,49 @@ function PayControls({
     Boolean(account) &&
     account?.wallets.some((wallet) => wallet.chainKey === request.network)
 
+  /**
+   * Submits a transaction for checking, and keeps asking while the network has merely not caught
+   * up yet.
+   *
+   * A transaction that has just been broadcast is genuinely not visible for a moment, and the
+   * first answer for a payment that will succeed is often "not seen yet". Reporting that and
+   * stopping would leave the payer looking at a pending page for a payment that landed a second
+   * later. So an unseen transaction is retried a few times before the page says anything.
+   *
+   * Only *unseen* is retried. A transaction that pays the wrong address or too little is a settled
+   * answer, and asking again would not change it.
+   */
   async function verify(candidate: string) {
     setChecking(true)
     setError(null)
     setPendingNote(null)
     try {
-      const response = await fetch(`/api/payment-requests/${request.id}/verify`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: candidate }),
-      })
-      const body = await response.json()
-      if (!response.ok && response.status !== 202) {
-        throw new Error(body.error ?? 'Could not verify that payment.')
+      for (let attempt = 0; ; attempt++) {
+        const response = await fetch(`/api/payment-requests/${request.id}/verify`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ txHash: candidate }),
+        })
+        const body = await response.json()
+        if (!response.ok && response.status !== 202) {
+          throw new Error(body.error ?? 'Could not verify that payment.')
+        }
+        if (body.verified) {
+          onSettled(body.request)
+          return
+        }
+        if (!body.pending) {
+          setError(body.reason ?? 'That transaction does not pay this request.')
+          return
+        }
+        if (attempt >= VERIFY_ATTEMPTS - 1) {
+          // Still unseen. Not proof it failed, and the page must not say it did.
+          setPendingNote(body.reason ?? 'The network has not seen that transaction yet.')
+          return
+        }
+        setPendingNote('Waiting for Solana to confirm it…')
+        await new Promise((resolve) => setTimeout(resolve, VERIFY_INTERVAL_MS))
       }
-      if (body.verified) {
-        onSettled(body.request)
-        return
-      }
-      // Not proof of non-payment when it is merely unseen — say which it is.
-      if (body.pending) setPendingNote(body.reason ?? 'The network has not seen that transaction yet.')
-      else setError(body.reason ?? 'That transaction does not pay this request.')
     } catch (cause) {
       setError(readableError(cause))
     } finally {
@@ -250,12 +277,20 @@ function PayControls({
             label={`Pay ${formatAmount(request.amount, request.decimals)} ${request.currency}`}
             disabled={checking}
             onSignature={verify}
+            onUnavailable={setSolanaWalletMissing}
           />
-          <div className="flex items-center gap-3">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-[11px] text-muted-foreground">or pay from another wallet</span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
+          {solanaWalletMissing ? (
+            <Notice tone="warn" title="Your Vaulted wallet has not loaded">
+              Paying from it needs the wallet open in this browser. Reload the page, or pay from
+              any Solana wallet using the address below — Vaulted checks either the same way.
+            </Notice>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-[11px] text-muted-foreground">or pay from another wallet</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+          )}
         </>
       )}
 
