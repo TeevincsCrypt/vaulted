@@ -1,6 +1,11 @@
 'use client'
 
-import { PrivyProvider, type PrivyClientConfig } from '@privy-io/react-auth'
+import {
+  PrivyProvider,
+  type ConnectedWallet as PrivyConnectedWallet,
+  type PrivyClientConfig,
+  type User as PrivyUser,
+} from '@privy-io/react-auth'
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit'
 import { WagmiProvider as PrivyWagmiProvider, createConfig as createPrivyConfig } from '@privy-io/wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -40,9 +45,49 @@ const transports = Object.fromEntries(
   chains.map((chain) => [chain.id, http(active && chain.id === active.id && rpcUrl ? rpcUrl : undefined)]),
 )
 
+/*
+  No browser extension is ever discovered.
+
+  wagmi turns on EIP-6963 discovery by default, which registers every injected wallet in the browser
+  — Rabby, MetaMask, whatever is installed — as a connector, and `reconnect()` will happily pick one
+  of them as the active account. On an app with a connect-wallet step that is the point. Here it is
+  a bug: the account's wallet is the one Privy assigned and the one payments to the handle are
+  recorded against, so a browser extension winning that slot means the signer is not the payee. What
+  the user sees is an extension asking to sign for a job post, and a "signer does not match" warning
+  on their own wallet page.
+*/
 const wagmiConfig = PRIVY_APP_ID
-  ? createPrivyConfig({ chains, transports })
-  : createConfig({ chains, transports, connectors: [] })
+  ? createPrivyConfig({ chains, transports, multiInjectedProviderDiscovery: false })
+  : createConfig({ chains, transports, connectors: [], multiInjectedProviderDiscovery: false })
+
+/**
+ * Which wallet wagmi is allowed to treat as the account's.
+ *
+ * Only ever the embedded one. Privy hands `useWallets()` every wallet it knows about, external ones
+ * included, and without this the connector set is built from all of them and the active account is
+ * decided by whichever id `reconnect()` finds stored — which is how an extension ends up signing.
+ * Returning a single wallet makes Privy build exactly one connector and set the connection to it
+ * outright, so the answer no longer depends on reconnect ordering. That is also what fixes a wallet
+ * that never loads at all: the connection is set directly rather than waiting on a reconnect that
+ * may never fire.
+ *
+ * Returning nothing is the honest answer while Privy is still provisioning — wagmi holds no account
+ * rather than adopting a wallet that is not the account's.
+ */
+function embeddedWalletOnly({
+  wallets,
+  user,
+}: {
+  wallets: PrivyConnectedWallet[]
+  user: PrivyUser | null
+}): PrivyConnectedWallet | undefined {
+  const embedded = wallets.find((wallet) => wallet.walletClientType === 'privy')
+  if (embedded) return embedded
+  // Same wallet by a different route: Privy's own record of it, in case the flag is not yet set on
+  // the entry in `wallets`. Never a fallback to "any wallet" — that is the bug, not a recovery.
+  const recorded = user?.wallet?.address?.toLowerCase()
+  return recorded ? wallets.find((wallet) => wallet.address.toLowerCase() === recorded) : undefined
+}
 
 /**
  * The RPC Privy signs Solana transactions against.
@@ -129,7 +174,9 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
   return (
     <PrivyProvider appId={PRIVY_APP_ID} config={privyConfig}>
       <QueryClientProvider client={queryClient}>
-        <PrivyWagmiProvider config={wagmiConfig}>{children}</PrivyWagmiProvider>
+        <PrivyWagmiProvider config={wagmiConfig} setActiveWalletForWagmi={embeddedWalletOnly}>
+          {children}
+        </PrivyWagmiProvider>
       </QueryClientProvider>
     </PrivyProvider>
   )
