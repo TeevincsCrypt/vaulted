@@ -19,6 +19,22 @@ export type VaultedDeployment = {
  * deployed. The app must never substitute a placeholder address for a missing entry.
  */
 export const VAULTED_DEPLOYMENTS: Record<number, VaultedDeployment> = {
+  "8453": {
+    "chainId": 8453,
+    "network": "base",
+    "address": "0xfDF21Eb29D35286002FC0De5701dbEEDdC2A9ed0",
+    "token": {
+      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "decimals": 6
+    },
+    "arbiter": "0xdF9124Ed99aD229af02FE3aaB06B6384d07b8c18",
+    "defaultProtectionPeriod": 86400,
+    "deploymentTransactionHash": "0x91c12703c06d46ead15bf71fb2393201d612bc4b015783e6fc5ed33cdd8ca335",
+    "deploymentBlockNumber": 50428897,
+    "deployedAt": "2026-08-25T08:39:09.391Z"
+  },
   "84532": {
     "chainId": 84532,
     "network": "baseSepolia",
@@ -37,4 +53,4 @@ export const VAULTED_DEPLOYMENTS: Record<number, VaultedDeployment> = {
   }
 } as const
 
-export const VAULTED_DEPLOYED_CHAIN_IDS: number[] = [84532]
+export const VAULTED_DEPLOYED_CHAIN_IDS: number[] = [8453, 84532]
