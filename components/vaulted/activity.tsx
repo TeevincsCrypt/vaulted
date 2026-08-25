@@ -20,7 +20,8 @@ type Event = {
   counterparty: string | null
   counterpartyHandle: string | null
   role: 'payee' | 'payer'
-  hash: string
+  /** Null when the step is known from the chain but no hash was ever reported for it. */
+  hash: string | null
   explorerUrl: string | null
   at: string
 }
@@ -30,8 +31,9 @@ const KIND_ICON = { CREATED: Send, FUNDED: Lock, SETTLED: Receipt } as const
 /**
  * Transaction history.
  *
- * Every row is a transaction hash Vaulted recorded, with a link to check it on an explorer. It is a
- * log of what happened, not a statement of current escrow state — the dashboard reads that live.
+ * Every row is a step that actually happened: a transaction hash Vaulted recorded, with a link to
+ * check it on an explorer, or a state the contract itself confirms when no hash was ever reported.
+ * A log of what happened, not a statement of current escrow state — the dashboard reads that live.
  */
 export function ActivityPage() {
   const { address } = useAccount()
@@ -155,8 +157,15 @@ export function ActivityPage() {
                     >
                       {shortHash(event.hash)} <ExternalLink size={10} />
                     </a>
-                  ) : (
+                  ) : event.hash ? (
                     <span className="mt-1 block font-mono text-[11px] text-muted-foreground">{shortHash(event.hash)}</span>
+                  ) : (
+                    /*
+                      Read from the contract rather than from a hash the browser reported. Said
+                      plainly, because "—" on its own reads as missing data when the step is in fact
+                      confirmed — there is simply no transaction to link to.
+                    */
+                    <span className="mt-1 block text-[11px] text-muted-foreground">confirmed on chain</span>
                   )}
                 </div>
               </Card>

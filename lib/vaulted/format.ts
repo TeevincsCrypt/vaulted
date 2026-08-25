@@ -2,10 +2,30 @@ import { formatUnits, parseUnits } from 'viem'
 
 /** Formats token base units for display. Never used for arithmetic — that stays in base units. */
 export function formatAmount(baseUnits: bigint | string, decimals: number, maxFractionDigits = 2): string {
-  const value = formatUnits(BigInt(baseUnits), decimals)
+  const raw = BigInt(baseUnits)
+  const value = formatUnits(raw, decimals)
   const [whole, fraction = ''] = value.split('.')
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  const trimmed = fraction.slice(0, maxFractionDigits).replace(/0+$/, '')
+  let trimmed = fraction.slice(0, maxFractionDigits).replace(/0+$/, '')
+
+  /*
+   * Never round a real amount away to nothing.
+   *
+   * Two decimal places suit a stablecoin and destroy a native one: 0.0002 ETH — a real escrow —
+   * came out as plain "0", and said so on a release button and in the notification telling somebody
+   * they had been paid. Reporting a payment as zero is worse than reporting no figure at all.
+   *
+   * So when the cutoff would erase the whole value, precision widens to the first couple of
+   * significant digits instead. Amounts that survive the cutoff are unaffected, and this never
+   * shortens anything — it only refuses to claim that something is nothing.
+   */
+  if (!trimmed && raw !== BigInt(0) && whole === '0') {
+    const firstSignificant = fraction.search(/[1-9]/)
+    if (firstSignificant >= 0) {
+      trimmed = fraction.slice(0, firstSignificant + 2).replace(/0+$/, '')
+    }
+  }
+
   return trimmed ? `${grouped}.${trimmed}` : grouped
 }
 

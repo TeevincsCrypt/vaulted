@@ -50,6 +50,8 @@ export type EscrowSnapshot = {
   status: DisplayStatus
   payer: Address
   payee: Address
+  /** What this escrow holds: the zero address for the chain's own currency, otherwise the token. */
+  asset: Address
   amount: bigint
   createdAt: number
   fundedAt: number
@@ -91,6 +93,7 @@ export function useEscrow(escrowId: `0x${string}` | undefined, pollMs = 6000) {
       status: displayStatus(state, view.isExpired),
       payer: view.escrow.payer,
       payee: view.escrow.payee,
+      asset: view.escrow.asset,
       amount: view.escrow.amount,
       createdAt: Number(view.escrow.createdAt),
       fundedAt: Number(view.escrow.fundedAt),

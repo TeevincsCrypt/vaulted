@@ -188,7 +188,19 @@ function InboxRow({ row, onSettled }: { row: Row; onSettled: () => void }) {
             escrow={live}
             config={config}
             compact
-            onSettled={onSettled}
+            /*
+              Report the hash, then refresh. Discarding it — which is what passing the bare refresh
+              did — costs the settlement its row in Activity and costs both sides the notification,
+              since recording a hash is what makes the server re-read the chain.
+            */
+            onSettled={async (hash) => {
+              await fetch(`/api/invoices/${row.invoiceId}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ field: 'settleTxHash', hash }),
+              }).catch(() => null)
+              onSettled()
+            }}
           />
         ) : (
           <Skeleton className="h-11" />

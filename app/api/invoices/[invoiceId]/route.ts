@@ -6,6 +6,7 @@ import {
   recordTransaction,
   serialiseChainRead,
   serialiseInvoice,
+  syncInvoice,
 } from '@/lib/vaulted/server/invoices'
 import { detailsHash } from '@/lib/vaulted/invoice'
 import { ZERO_ADDRESS } from '@/lib/vaulted/config'
@@ -59,7 +60,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
  * PATCH /api/invoices/{invoiceId} — attach a transaction hash for display.
  *
  * Reported hashes are shown as explorer links and nothing more; they never change what the app
- * believes about escrow state.
+ * believes about escrow state. What follows a hash does: recording one prompts a fresh read of the
+ * contract, and that read — never the hash — is what decides the status and what both sides are
+ * told about it.
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ invoiceId: string }> }) {
   const { invoiceId } = await params
@@ -70,7 +73,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: 'field must be createTxHash, fundTxHash or settleTxHash.' }, { status: 400 })
     }
     const invoice = await recordTransaction(invoiceId, field, String(body.hash ?? ''))
-    return NextResponse.json({ invoice: serialiseInvoice(invoice) })
+
+    /*
+     * Re-read the chain here, rather than leaving it to whichever page happens to load next.
+     *
+     * Syncing is what notices a state change and tells both sides about it, and it only ever ran
+     * from two list pages. So a client releasing a payment from anywhere else moved real money and
+     * neither party heard anything, because nothing had asked the chain what had happened.
+     * Reporting a hash is the one moment we know something just did, which makes it the right place
+     * to look.
+     *
+     * Best-effort on purpose: the hash is already recorded, and an unreachable RPC must not turn a
+     * settled payment into a failed request. The next sync picks it up either way.
+     */
+    const synced = await syncInvoice(invoiceId).catch((error) => {
+      console.error('[vaulted/invoices/:id PATCH] sync after recording a hash', error)
+      return null
+    })
+
+    return NextResponse.json({ invoice: serialiseInvoice(synced?.invoice ?? invoice) })
   } catch (error) {
     if (error instanceof InvoiceError) return NextResponse.json({ error: error.message }, { status: error.status })
     console.error('[vaulted/invoices/:id PATCH]', error)

@@ -256,6 +256,34 @@ step(3, 'The two moments that used to pass in silence: escrow on chain, and mone
   check((await prisma.notification.count()) === 0, 'a status that did not change notifies nobody')
 
   /*
+    Releasing an escrow. This is the moment the freelancer is actually paid, and it went unreported
+    for a different reason to the rest: the notification depends on a sync noticing the state
+    change, and syncing only ever ran from two list pages — so a client who released from anywhere
+    else moved real money in silence.
+  */
+  await prisma.notification.deleteMany({})
+  await notifyEscrowTransition({
+    invoiceId: 'v_notifycheck00000001', description: 'A landing page', amount: '200000000000000',
+    tokenSymbol: 'ETH', tokenDecimals: 18,
+    payeeAddress: getAddress(WORKER.address), payerAddress: getAddress(CLIENT.address),
+    from: 'IN_ESCROW', to: 'RELEASED',
+  })
+  const released = await prisma.notification.findMany({ where: { type: 'PAYMENT_RELEASED' } })
+  check(released.length === 2, `releasing an escrow notifies both sides (${released.length})`)
+  check(
+    released.some((row) => row.accountId === worker.id && /released to you/i.test(row.body)),
+    'the freelancer is told the money is theirs',
+  )
+  // The amount is the escrow's own asset, in its own units — 0.0002 ETH, not the token's decimals.
+  check(
+    released.every((row) => /0\.0002 ETH/.test(row.body)),
+    `and in the units the escrow actually holds (${released[0]?.body ?? 'none'})`,
+  )
+
+
+  await prisma.notification.deleteMany({})
+
+  /*
     Money arriving. Direct payments settle by transfer and never touch an escrow transition, so
     nothing above ever fires for them — which left the event most worth knowing about as the one
     that arrived in silence.

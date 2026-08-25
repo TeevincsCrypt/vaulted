@@ -4,10 +4,10 @@ import { useEffect } from 'react'
 import { AlertTriangle, Ban, Gavel, RotateCcw, Send, Timer } from 'lucide-react'
 import { useAccount } from 'wagmi'
 import { VAULTED_ESCROW_ABI } from '@/lib/vaulted/generated/abi'
-import type { VaultedConfig } from '@/lib/vaulted/config'
+import { ZERO_ADDRESS, type VaultedConfig } from '@/lib/vaulted/config'
 import { useTransaction, type EscrowSnapshot } from '@/lib/vaulted/client'
 import { EscrowState } from '@/lib/vaulted/status'
-import { formatAmount } from '@/lib/vaulted/format'
+import { formatAmountExact } from '@/lib/vaulted/format'
 import { Button, Divider, Notice } from './primitives'
 import { TransactionStatus } from './transaction-status'
 import { NetworkGuard, SignInButton } from './wallet'
@@ -82,7 +82,19 @@ export function EscrowActions({
   if (!anyoneCanAct && !viewerCanAct && tx.phase === 'idle') return null
   if (!anyoneCanAct && !viewerCanAct && !isConnected) return null
 
-  const amount = formatAmount(escrow.amount, config.token.decimals)
+  /*
+    The escrow's own asset decides how its amount reads, not the deployment's token.
+
+    One deployment now holds both the chain's currency and one ERC-20, and formatting every escrow
+    in the token's units was wrong by whole orders of magnitude for the other: a real 0.0002 ETH
+    escrow rendered as "200,000,000" on the button that releases it. A figure that far out on a
+    button that moves somebody's money is worse than no figure at all.
+  */
+  const native = escrow.asset === ZERO_ADDRESS
+  const symbol = native ? config.chain.nativeCurrency.symbol : config.token.symbol
+  const decimals = native ? config.chain.nativeCurrency.decimals : config.token.decimals
+  // Enough places that a small native amount is still legible — 0.0002 ETH must not round to "0".
+  const amount = `${formatAmountExact(escrow.amount, decimals)} ${symbol}`
   const busy = tx.phase === 'signing' || tx.phase === 'pending'
 
   return (
@@ -118,14 +130,14 @@ export function EscrowActions({
             {canTimeout && (
               <Button full size="lg" busy={busy} onClick={call('executeTimeout')}>
                 <Timer size={16} />
-                Auto-release {amount} {config.token.symbol}
+                Auto-release {amount}
               </Button>
             )}
 
             {canRelease && (
               <Button full size="lg" busy={busy} onClick={call('release')}>
                 <Send size={16} />
-                Release {amount} {config.token.symbol} to the freelancer
+                Release {amount} to the freelancer
               </Button>
             )}
 

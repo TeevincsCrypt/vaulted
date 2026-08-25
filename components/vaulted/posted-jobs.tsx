@@ -277,7 +277,23 @@ function PostedJobCard({ job, onChanged }: { job: PostedJob; onChanged: () => vo
                   escrow={live}
                   config={config}
                   compact
-                  onSettled={() => onChanged()}
+                  /*
+                    Record the hash, then reload.
+
+                    This used to reload and nothing else, which quietly cost two things: the
+                    settlement never appeared in Activity, which is built from reported hashes, and
+                    nobody was notified, because recording a hash is what makes the server re-read
+                    the chain. Releasing from here is the client's main route to paying somebody, so
+                    it was the one place that most needed to report it.
+                  */
+                  onSettled={async (hash) => {
+                    await fetch(`/api/invoices/${job.invoiceId}`, {
+                      method: 'PATCH',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ field: 'settleTxHash', hash }),
+                    }).catch(() => null)
+                    onChanged()
+                  }}
                 />
               </>
             ) : (
