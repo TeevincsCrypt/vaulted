@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowUpFromLine, Coins, ShieldCheck } from 'lucide-react'
 import { erc20Abi, isAddress, getAddress } from 'viem'
-import { useAccount, useBalance } from 'wagmi'
+import { useAccount, useBalance, useEstimateFeesPerGas } from 'wagmi'
 import { readableError, usePaymentConfig, useTokenBalance, useTransaction } from '@/lib/vaulted/client'
 import { formatAmount, formatAmountExact, parseAmount, shortAddress } from '@/lib/vaulted/format'
 import { PRIVY_APP_ID } from '@/lib/vaulted/privy'
@@ -35,7 +35,8 @@ import { NetworkGuard, SignInButton } from './wallet'
  *   Balance   read straight from the token contract and the chain's native balance.
  *   Deposit   somebody sends tokens to this address. There is nothing to authorise, so the page
  *             gives you the address rather than pretending there is a deposit button.
- *   Withdraw  a real ERC-20 transfer signed by the wallet. The tokens leave and do not come back.
+ *   Withdraw  a real transfer signed by the wallet, of either asset it holds — the token payments
+ *             are denominated in, or the chain's own currency. It leaves and does not come back.
  *
  * Escrowed money is deliberately absent from these numbers. It is not in the wallet — it is locked
  * in the escrow contract, and the dashboard is where that is accounted for.
@@ -214,25 +215,57 @@ function Receive({ address }: { address: `0x${string}` }) {
   )
 }
 
+/**
+ * Sending out of the EVM wallet — either the token payments are denominated in, or the chain's own
+ * currency.
+ *
+ * The native side is not a nicety. ETH is what every transaction here is paid for in, so a wallet
+ * that has been topped up for gas holds real money that, without this, had no way out short of
+ * exporting the key. The two assets move by completely different mechanisms — an ERC-20 `transfer`
+ * against the token contract, versus a plain value transfer with no contract involved — and the
+ * only place that difference is allowed to show is in {@link send}.
+ */
 function Withdraw({ address }: { address: `0x${string}` }) {
   const config = usePaymentConfig()
   const { address: signer } = useAccount()
   const balance = useTokenBalance(address)
+  const native = useBalance({ address, chainId: config?.chainId })
+  const fees = useEstimateFeesPerGas({ chainId: config?.chainId })
   const tx = useTransaction()
 
+  const [asset, setAsset] = useState<'token' | 'native'>('token')
   const [destination, setDestination] = useState('')
   const [amount, setAmount] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const decimals = config?.token.decimals ?? 6
+  const sendingNative = asset === 'native'
+  const symbol = (sendingNative ? native.data?.symbol : config?.token.symbol) ?? (sendingNative ? 'ETH' : 'USDC')
+  const decimals = sendingNative ? (native.data?.decimals ?? 18) : (config?.token.decimals ?? 6)
   const parsed = amount.trim() ? parseAmount(amount, decimals) : null
-  const available = (balance.data as bigint | undefined) ?? 0n
+  const available = (sendingNative ? native.data?.value : (balance.data as bigint | undefined)) ?? 0n
+
+  const query = sendingNative ? native : balance
+  // Only a balance we actually read can contradict an amount. An unreadable one blocks the send
+  // outright rather than being treated as zero, which would reject every valid withdrawal.
+  const balanceKnown = sendingNative
+    ? !native.isLoading && !native.isError && native.data !== undefined
+    : !balance.isLoading && !balance.isError
+
+  /*
+    Gas comes out of the same balance as a native send, so the whole balance is never sendable. The
+    reserve is this chain's own fee estimate for the 21,000 gas a plain transfer costs, doubled,
+    because the base fee moves between quoting this and the wallet signing it — and on Base the
+    whole reserve is a fraction of a cent, so erring high costs nothing and erring low costs the
+    user a failed transaction. It is only ever applied to "Max": a smaller amount typed by hand is
+    the user's to judge, and the wallet will say if it cannot cover it.
+  */
+  const gasReserve = fees.data?.maxFeePerGas ? 21_000n * fees.data.maxFeePerGas * 2n : null
+  const sendableNative = gasReserve !== null && available > gasReserve ? available - gasReserve : 0n
+  const maxAmount = sendingNative ? sendableNative : available
+  const maxKnown = balanceKnown && (!sendingNative || gasReserve !== null)
 
   const destinationValid = isAddress(destination.trim())
   const sendingToSelf = destinationValid && getAddress(destination.trim()) === address
-  // Only a balance we actually read can contradict an amount. An unreadable one blocks the send
-  // outright rather than being treated as zero, which would reject every valid withdrawal.
-  const balanceKnown = !balance.isLoading && !balance.isError
   const overBalance = balanceKnown && parsed !== null && parsed > available
   const ready =
     destinationValid && !sendingToSelf && parsed !== null && parsed > 0n && balanceKnown && !overBalance
@@ -241,6 +274,14 @@ function Withdraw({ address }: { address: `0x${string}` }) {
     if (!config || !ready || parsed === null) return
     setError(null)
     try {
+      if (sendingNative) {
+        await tx.sendNative({
+          to: getAddress(destination.trim()),
+          value: parsed,
+          chainId: config.chainId,
+        })
+        return
+      }
       await tx.send({
         address: config.token.address,
         abi: erc20Abi,
@@ -256,13 +297,44 @@ function Withdraw({ address }: { address: `0x${string}` }) {
   return (
     <Card className="p-7">
       <Eyebrow>Withdraw</Eyebrow>
-      <h2 className="vt-display mt-2 text-lg">Send {config?.token.symbol} somewhere else</h2>
+      <h2 className="vt-display mt-2 text-lg">Send {symbol} somewhere else</h2>
       <p className="mt-1.5 max-w-xl text-[13.5px] leading-relaxed text-muted-foreground">
         A transfer from your wallet, signed by you. It is final once confirmed — the chain has no
         undo, and neither does Vaulted.
       </p>
 
       <Divider className="my-5" />
+
+      <div className="mb-4">
+        <Field label="Asset">
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: 'token' as const, label: config?.token.symbol ?? 'USDC' },
+              { key: 'native' as const, label: native.data?.symbol ?? config?.chain.nativeCurrency.symbol ?? 'ETH' },
+            ]).map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => {
+                  setAsset(option.key)
+                  // Typed against the other asset's decimals and balance — the same digits would
+                  // mean a different quantity here.
+                  setAmount('')
+                  setError(null)
+                  tx.reset()
+                }}
+                className={`rounded-lg border px-3 py-2 text-[13px] transition ${
+                  asset === option.key
+                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
+                    : 'border-border hover:bg-muted'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Destination address" hint="An address on the same network.">
@@ -276,13 +348,17 @@ function Withdraw({ address }: { address: `0x${string}` }) {
         </Field>
 
         <Field
-          label={`Amount (${config?.token.symbol})`}
+          label={`Amount (${symbol})`}
           hint={
-            balance.isError
+            query.isError
               ? 'Your balance could not be read, so "Max" is unavailable.'
-              : balance.isLoading
+              : query.isLoading
                 ? 'Reading your balance…'
-                : `${formatAmountExact(available, decimals)} available`
+                : sendingNative
+                  ? gasReserve === null
+                    ? `${formatAmountExact(available, decimals)} available — the fee could not be quoted, so "Max" is unavailable.`
+                    : `${formatAmountExact(available, decimals)} available. Max leaves enough for gas.`
+                  : `${formatAmountExact(available, decimals)} available`
           }
         >
           <div className="flex gap-2">
@@ -295,8 +371,8 @@ function Withdraw({ address }: { address: `0x${string}` }) {
             />
             <Button
               variant="secondary"
-              onClick={() => setAmount(formatAmountExact(available, decimals))}
-              disabled={available === 0n || balance.isError || balance.isLoading}
+              onClick={() => setAmount(formatAmountExact(maxAmount, decimals))}
+              disabled={!maxKnown || maxAmount === 0n}
             >
               Max
             </Button>
@@ -317,8 +393,15 @@ function Withdraw({ address }: { address: `0x${string}` }) {
       {overBalance && (
         <div className="mt-4">
           <Notice tone="danger">
-            That is more than the {formatAmountExact(available, decimals)} {config?.token.symbol} in
-            this wallet.
+            That is more than the {formatAmountExact(available, decimals)} {symbol} in this wallet.
+          </Notice>
+        </div>
+      )}
+      {sendingNative && !overBalance && parsed !== null && gasReserve !== null && parsed > sendableNative && (
+        <div className="mt-4">
+          <Notice tone="warn">
+            That leaves nothing for gas. {symbol} pays the fee for its own transfer, so sending the
+            full balance fails — use Max to leave enough.
           </Notice>
         </div>
       )}
@@ -359,8 +442,8 @@ function Withdraw({ address }: { address: `0x${string}` }) {
           >
             <ArrowUpFromLine size={16} />
             {ready
-              ? `Send ${amount} ${config?.token.symbol} to ${shortAddress(destination.trim())}`
-              : `Send ${config?.token.symbol}`}
+              ? `Send ${amount} ${symbol} to ${shortAddress(destination.trim())}`
+              : `Send ${symbol}`}
           </Button>
         </NetworkGuard>
       </div>
@@ -381,10 +464,9 @@ function Withdraw({ address }: { address: `0x${string}` }) {
  * it arrives. The balance is read from the cluster through the server, so an API-keyed RPC stays
  * off the client and a browser-origin rejection cannot make it look broken.
  *
- * Sending is not offered, and there is no button pretending otherwise. Vaulted has no Solana
- * signing flow — the EVM wallet reaches wagmi through Privy's connector and the Solana one does
- * not — so a "withdraw" here would be a dead control. Exporting the key is the honest route out,
- * and it is on the wallet page.
+ * Sending covers both assets the wallet can hold: the network's USDC and SOL itself. Neither goes
+ * through wagmi — the EVM wallet reaches it through Privy's connector and the Solana one does not —
+ * so these transactions are built on the server and signed through Privy's Solana hooks instead.
  */
 function SolanaFunds({ address }: { address: string }) {
   const [state, setState] = useState<
@@ -504,6 +586,7 @@ function SolanaFunds({ address }: { address: string }) {
             symbol={state.status === 'ok' ? state.token.symbol : 'USDC'}
             decimals={state.status === 'ok' ? state.token.decimals : 6}
             available={state.status === 'ok' ? state.token.amount : null}
+            solAvailable={state.status === 'ok' ? state.native.amount : null}
             onSent={reload}
           />
         ) : (

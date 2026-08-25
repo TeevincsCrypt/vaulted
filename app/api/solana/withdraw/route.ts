@@ -3,10 +3,18 @@ import { getChain, VAULTED_CHAINS } from '@/lib/vaulted/registry'
 import { isSolanaAddress } from '@/lib/vaulted/solana'
 import { ApiError } from '@/lib/vaulted/server/auth'
 import { requireAccount } from '@/lib/vaulted/server/accounts'
-import { prepareTokenTransfer, SolanaTransferError } from '@/lib/vaulted/server/solana-transfer'
+import {
+  prepareNativeTransfer,
+  prepareTokenTransfer,
+  SolanaTransferError,
+} from '@/lib/vaulted/server/solana-transfer'
 
 /**
- * POST /api/solana/withdraw — the unsigned transaction that moves the account's own USDC out.
+ * POST /api/solana/withdraw — the unsigned transaction that moves the account's own money out.
+ *
+ * Either asset the wallet can hold: `token` for this network's USDC, `native` for SOL itself. The
+ * two are different instructions with different ways to fail — see the builders — but everything
+ * below about where the values come from applies to both.
  *
  * Unlike paying a request, the destination here does come from the body, and that is correct: this
  * is the user moving their own money to an address of their choosing, and there is nobody else to
@@ -22,7 +30,12 @@ export async function POST(request: NextRequest) {
       to?: unknown
       amount?: unknown
       network?: unknown
+      asset?: unknown
     }
+
+    // Anything other than an explicit 'native' is the token, so an older client that sends no
+    // asset at all keeps the behaviour it was written against.
+    const asset = body.asset === 'native' ? 'native' : 'token'
 
     const to = typeof body.to === 'string' ? body.to.trim() : ''
     if (!isSolanaAddress(to)) {
@@ -40,7 +53,8 @@ export async function POST(request: NextRequest) {
     const chain =
       getChain(typeof body.network === 'string' ? body.network : '') ??
       VAULTED_CHAINS.find((entry) => entry.family === 'svm' && entry.tier === 'production')
-    if (!chain || chain.family !== 'svm' || !chain.token) {
+    // A token withdrawal needs a mint; SOL is the network itself and needs no token configured.
+    if (!chain || chain.family !== 'svm' || (asset === 'token' && !chain.token)) {
       throw new SolanaTransferError('No Solana network is configured.', 409)
     }
 
@@ -55,12 +69,10 @@ export async function POST(request: NextRequest) {
       throw new SolanaTransferError('That is this wallet — pick a different destination.', 400)
     }
 
-    const prepared = await prepareTokenTransfer({
-      chain,
-      payer: wallet.address,
-      recipient: to,
-      amount,
-    })
+    const prepared =
+      asset === 'native'
+        ? await prepareNativeTransfer({ chain, payer: wallet.address, recipient: to, amount })
+        : await prepareTokenTransfer({ chain, payer: wallet.address, recipient: to, amount })
     return NextResponse.json(prepared)
   } catch (error) {
     if (SolanaTransferError.is(error) || ApiError.is(error)) {

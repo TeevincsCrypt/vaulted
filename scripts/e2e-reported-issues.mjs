@@ -53,6 +53,8 @@ const WORKER = privateKeyToAccount('0x7c852118294e51e653712a81e05800f419141751be
 const CLIENT_SOL = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
 const WORKER_SOL = 'DRpbCBMxVnDK7maPM5tGv6MvB3v1sRMC86PZ8okm21hy'
 const JOB_ID = 'job_issues0000000001'
+/** The job a wallet the account does not own tries to post. It must never come into existence. */
+const STRANGER_JOB_ID = 'job_issues0000000002'
 
 let failures = 0
 const step = (n, s) => console.log(`\n[${n}] ${s}`)
@@ -79,7 +81,7 @@ async function wipe() {
   const accounts = await prisma.account.findMany({ where: { name: { in: names } }, select: { id: true } })
   const ids = accounts.map((a) => a.id)
   await prisma.paymentRequest.deleteMany({ where: { OR: [{ creatorId: { in: ids } }, { jobId: JOB_ID }] } })
-  await prisma.job.deleteMany({ where: { id: JOB_ID } })
+  await prisma.job.deleteMany({ where: { id: { in: [JOB_ID, STRANGER_JOB_ID] } } })
   await prisma.notification.deleteMany({ where: { accountId: { in: ids } } })
   await prisma.linkedWallet.deleteMany({ where: { usernameId: { in: ids } } })
   await prisma.linkedWallet.deleteMany({ where: { address: { in: [CLIENT.address, WORKER.address, CLIENT_SOL, WORKER_SOL] } } })
@@ -176,6 +178,32 @@ try {
     budgetAmount: '1000000', chainKey: 'solana', deadline: null, protectionPeriod: 86400,
     clientAddress: CLIENT.address, issuedAt, signature } })
   check(response.ok, `the job posts on Solana (${response.status})`)
+
+  /*
+    The same post, signed by a wallet this account does not own.
+
+    This is what a browser extension winning wagmi's active-wallet slot produced: a perfectly valid
+    signature over a perfectly valid message, from an address belonging to nobody. Every record it
+    wrote was then unreachable — `accountForAddress` found no owner, so the poster was never
+    notified about applicants, the job never appeared in their posted-jobs list, and the escrow
+    raised against it could only be funded by a wallet the app no longer connects to. The signature
+    was never the problem; proving control of a wallet was simply never the same question as
+    proving it was this account's.
+  */
+  const stranger = privateKeyToAccount('0x' + 'b7'.repeat(32))
+  const strangerIssuedAt = now()
+  const strangerJob = {
+    jobId: STRANGER_JOB_ID, title: 'Signed by an extension', budgetAmount: '1000000',
+    chainKey: 'solana', client: stranger.address, issuedAt: strangerIssuedAt,
+  }
+  const strangerResponse = await api('/api/jobs', { cookie: clientCookie, method: 'POST', body: {
+    ...strangerJob, description: 'Posted while an extension held the wallet slot.',
+    deadline: null, protectionPeriod: 86400, clientAddress: stranger.address,
+    signature: await stranger.signMessage({ message: jobCreationMessage(strangerJob) }) } })
+  check(strangerResponse.status === 403,
+    `a job signed by a wallet the account does not own is refused (${strangerResponse.status})`)
+  check((await prisma.job.findUnique({ where: { id: STRANGER_JOB_ID } })) === null,
+    'and no unreachable job row is left behind')
 
   // The client is looking at the app when the application lands, which is when they said they saw
   // nothing. Load the page first, then apply, then let the bell poll.
@@ -324,6 +352,24 @@ try {
   check(ownWallet.status === 400, `withdraw refuses sending to itself (${ownWallet.status})`)
   const signedOut = await api('/api/solana/withdraw', { method: 'POST', body: { to: WORKER_SOL, amount: '1000' } })
   check(signedOut.status === 401, `withdraw refuses a signed-out caller (${signedOut.status})`)
+
+  /*
+    SOL itself, not only the token. The wallet holds SOL to pay Solana's fees with, and until now
+    the only way to get it back out was to export the key. Outbound Solana is blocked from this
+    sandbox, so a successfully built transaction is not what is being checked: what matters is that
+    `asset: 'native'` is a real route that validates its inputs — rather than being ignored, which
+    would silently send the token instead — and that it refuses everything the token path refuses.
+  */
+  const nativeToSelf = await api('/api/solana/withdraw', { cookie: clientCookie, method: 'POST', body: { to: CLIENT_SOL, amount: '1000', asset: 'native' } })
+  check(nativeToSelf.status === 400, `a SOL withdrawal refuses sending to itself (${nativeToSelf.status})`)
+  const nativeBad = await api('/api/solana/withdraw', { cookie: clientCookie, method: 'POST', body: { to: '0x1234', amount: '1000', asset: 'native' } })
+  check(nativeBad.status === 400, `a SOL withdrawal refuses an EVM address (${nativeBad.status})`)
+  const nativeOut = await api('/api/solana/withdraw', { method: 'POST', body: { to: WORKER_SOL, amount: '1000', asset: 'native' } })
+  check(nativeOut.status === 401, `a SOL withdrawal refuses a signed-out caller (${nativeOut.status})`)
+  const nativeValid = await api('/api/solana/withdraw', { cookie: clientCookie, method: 'POST', body: { to: WORKER_SOL, amount: '1000', asset: 'native' } })
+  check(nativeValid.status === 502 || nativeValid.status === 409,
+    `a valid SOL withdrawal reaches Solana rather than being refused as unknown (${nativeValid.status})`)
+
   const notMine = await api('/api/solana/transfer', { cookie: workerCookie, method: 'POST', body: { requestId: jobView.payment.id } })
   check(notMine.status === 400, `paying your own request is refused (${notMine.status})`)
 

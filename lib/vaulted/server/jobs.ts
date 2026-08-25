@@ -7,8 +7,8 @@ import {
   workSubmissionMessage,
 } from '../messages'
 import { getChain } from '../registry'
-import { accountForAddress } from './accounts'
-import { ApiError, requireSigner, requireTransactableChain } from './auth'
+import { accountForAddress, requireOwnedSigner } from './accounts'
+import { ApiError, requireTransactableChain } from './auth'
 import { createJobPaymentRequest } from './payment-requests'
 import {
   notifyApplicationReceived,
@@ -92,7 +92,7 @@ export async function createJob(input: {
     throw new ApiError('Protection period must be between 1 hour and 365 days.', 400)
   }
 
-  const client = await requireSigner({
+  const client = await requireOwnedSigner({
     message: jobCreationMessage({
       jobId: input.jobId,
       title,
@@ -148,7 +148,7 @@ export async function applyToJob(input: {
     throw new ApiError(`A message is required, up to ${MAX_APPLICATION} characters.`, 400)
   }
 
-  const applicant = await requireSigner({
+  const applicant = await requireOwnedSigner({
     message: jobApplicationMessage({ jobId: job.id, applicant: input.applicantAddress, issuedAt: input.issuedAt }),
     signature: input.signature,
     expected: input.applicantAddress,
@@ -192,7 +192,7 @@ export async function acceptApplicant(input: {
   if (!job) throw new ApiError('No such job.', 404)
   if (job.status !== 'OPEN') throw new ApiError('This job has already been assigned or cancelled.', 409)
 
-  const client = await requireSigner({
+  const client = await requireOwnedSigner({
     message: jobAcceptMessage({
       jobId: job.id,
       applicant: input.applicantAddress,
@@ -283,7 +283,7 @@ export async function submitWork(input: {
   if (!job) throw new ApiError('No such job.', 404)
   if (!job.assignedTo) throw new ApiError('This job has not been assigned yet.', 409)
 
-  const submitter = await requireSigner({
+  const submitter = await requireOwnedSigner({
     message: workSubmissionMessage({
       jobId: job.id,
       applicant: input.applicantAddress,

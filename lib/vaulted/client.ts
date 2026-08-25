@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { erc20Abi, type Address } from 'viem'
-import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi'
+import {
+  useAccount,
+  useReadContract,
+  useSendTransaction,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from 'wagmi'
 import { VAULTED_ESCROW_ABI } from './generated/abi'
 import {
   getPaymentConfig,
@@ -148,7 +154,19 @@ export type TxState = {
  * lifecycle — wallet prompt, mined, confirmed — with the actual hash at every step.
  */
 export function useTransaction() {
-  const { writeContractAsync, data: hash, reset: resetWrite, isPending } = useWriteContract()
+  const { writeContractAsync, data: writeHash, reset: resetWrite, isPending: writePending } = useWriteContract()
+  /*
+    Moving the chain's own currency is not a contract call and has no ABI to write through. ETH is
+    what gas is paid in, so a wallet holding it and no token has real money here with no way out —
+    which is what "I have ETH on it" was about. Kept inside this hook rather than beside it so both
+    kinds of transaction produce the same phases, and `TransactionStatus` needs to know nothing
+    about which one it is watching.
+  */
+  const { sendTransactionAsync, data: sendHash, reset: resetSend, isPending: sendPending } = useSendTransaction()
+
+  // Only one of the two can be in flight: `send` and `sendNative` each reset the pair first, so
+  // there is never a stale hash from the other sitting alongside a live one.
+  const hash = writeHash ?? sendHash
   const receipt = useWaitForTransactionReceipt({ hash })
   const [error, setError] = useState<string | null>(null)
   const [signing, setSigning] = useState(false)
@@ -159,7 +177,7 @@ export function useTransaction() {
       ? 'confirmed'
       : hash
         ? 'pending'
-        : signing || isPending
+        : signing || writePending || sendPending
           ? 'signing'
           : 'idle'
 
@@ -167,8 +185,14 @@ export function useTransaction() {
     if (receipt.isError) setError(receipt.error?.message ?? 'The transaction failed on chain.')
   }, [receipt.isError, receipt.error])
 
-  async function send(request: Parameters<typeof writeContractAsync>[0]): Promise<`0x${string}` | null> {
+  function clear() {
     setError(null)
+    resetWrite()
+    resetSend()
+  }
+
+  async function send(request: Parameters<typeof writeContractAsync>[0]): Promise<`0x${string}` | null> {
+    clear()
     setSigning(true)
     try {
       return await writeContractAsync(request)
@@ -180,16 +204,28 @@ export function useTransaction() {
     }
   }
 
+  /** A plain value transfer of the chain's native currency. */
+  async function sendNative(request: Parameters<typeof sendTransactionAsync>[0]): Promise<`0x${string}` | null> {
+    clear()
+    setSigning(true)
+    try {
+      return await sendTransactionAsync(request)
+    } catch (cause) {
+      setError(readableError(cause))
+      return null
+    } finally {
+      setSigning(false)
+    }
+  }
+
   return {
     send,
+    sendNative,
     phase,
     hash,
     error,
     receipt,
-    reset: () => {
-      setError(null)
-      resetWrite()
-    },
+    reset: clear,
   }
 }
 

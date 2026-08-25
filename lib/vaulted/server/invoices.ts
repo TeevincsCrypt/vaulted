@@ -12,6 +12,7 @@ import {
 } from '../invoice'
 import { displayStatus, EscrowState, type DisplayStatus } from '../status'
 import { readEscrow } from './chain'
+import { currentAccount, evmAddressesOf } from './accounts'
 import { notifyEscrowTransition, notifyPaymentRequested } from './notifications'
 
 export class InvoiceError extends Error {
@@ -113,6 +114,24 @@ export async function createInvoice(input: CreateInvoiceInput) {
 
   if (!signer || signer.toLowerCase() !== payee.toLowerCase()) {
     throw new InvoiceError('Signature does not match the payee wallet.', 401)
+  }
+
+  /*
+   * The payee must be a wallet the signed-in account owns, for the same reason job postings must —
+   * see {@link requireOwnedSigner}. The contract makes the escrow's creator its payee, so an escrow
+   * raised under an address no account owns pays out to a wallet Vaulted will not connect to, and
+   * the request never reaches the payee's own list of what they are owed.
+   */
+  const signedInAs = await currentAccount().catch(() => null)
+  if (signedInAs) {
+    const owned = evmAddressesOf(signedInAs)
+    if (!owned.some((address) => address.toLowerCase() === payee.toLowerCase())) {
+      throw new InvoiceError(
+        `That signature came from ${payee.slice(0, 8)}…${payee.slice(-6)}, which is not a wallet on ` +
+          `@${signedInAs.name}. This escrow would pay out to a wallet your account does not own.`,
+        403,
+      )
+    }
   }
 
   const salt = escrowSalt(input.invoiceId)

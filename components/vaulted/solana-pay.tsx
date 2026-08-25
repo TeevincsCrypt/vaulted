@@ -169,7 +169,10 @@ export function SolanaPayButton({
 }
 
 /**
- * Moving USDC out of the Solana wallet to an address of the user's choosing.
+ * Moving money out of the Solana wallet to an address of the user's choosing.
+ *
+ * Either asset the wallet holds — the network's USDC, or SOL itself. SOL was the conspicuous gap:
+ * the balance was shown, the wallet plainly held it, and the only route out was exporting the key.
  *
  * The destination is theirs to pick and there is no undo, so the address is shown back in full
  * before the button is offered — a truncated one hides exactly the characters a typo lives in.
@@ -178,24 +181,39 @@ export function SolanaWithdraw({
   symbol,
   decimals,
   available,
+  solAvailable,
   onSent,
 }: {
   symbol: string
   decimals: number
   /** Base units currently held, so an over-send is caught before the network rejects it. */
   available: string | null
+  /** Lamports currently held. Null when that balance could not be read. */
+  solAvailable: string | null
   onSent: () => void
 }) {
   const { available: canSign, build, sign } = useSolanaSend()
+  const [asset, setAsset] = useState<'token' | 'native'>('token')
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('')
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
   const [signature, setSignature] = useState<string | null>(null)
 
+  const native = asset === 'native'
+  const activeSymbol = native ? 'SOL' : symbol
+  const activeDecimals = native ? 9 : decimals
+  const activeAvailable = native ? solAvailable : available
+
   const destinationValid = isSolanaAddress(to.trim())
-  const base = parseAmount(amount, decimals)
-  const tooMuch = base !== null && available !== null && base > BigInt(available)
+  const base = parseAmount(amount, activeDecimals)
+  /*
+    For SOL this is a first pass and deliberately not the last word. The fee comes out of the same
+    balance as the amount, and only the server can quote it against the real message — so sending
+    every last lamport looks affordable here and is refused there, with the actual numbers. Better
+    that than this page inventing a fee to subtract.
+  */
+  const tooMuch = base !== null && activeAvailable !== null && base > BigInt(activeAvailable)
 
   if (!canSign) {
     return (
@@ -219,6 +237,7 @@ export function SolanaWithdraw({
       const { bytes, payer } = await build('/api/solana/withdraw', {
         to: to.trim(),
         amount: base.toString(),
+        asset,
       })
       setPhase('signing')
       const result = await sign(bytes, payer)
@@ -242,6 +261,35 @@ export function SolanaWithdraw({
       </p>
 
       <div className="mt-4 flex flex-col gap-4">
+        <Field label="Asset">
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: 'token' as const, label: symbol },
+              { key: 'native' as const, label: 'SOL' },
+            ]).map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                disabled={phase !== 'idle'}
+                onClick={() => {
+                  setAsset(option.key)
+                  // The amount was typed against the other asset's decimals and balance. Carrying
+                  // it over would be a different quantity wearing the same digits.
+                  setAmount('')
+                  setError(null)
+                }}
+                className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
+                  asset === option.key
+                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
+                    : 'border-border hover:bg-muted'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
         <Field
           label="Destination address"
           error={to.trim() && !destinationValid ? 'That is not a Solana address.' : null}
@@ -257,10 +305,11 @@ export function SolanaWithdraw({
         </Field>
 
         <Field
-          label={`Amount (${symbol})`}
+          label={`Amount (${activeSymbol})`}
           hint={
-            available !== null
-              ? `${formatAmountExact(BigInt(available), decimals)} ${symbol} available`
+            activeAvailable !== null
+              ? `${formatAmountExact(BigInt(activeAvailable), activeDecimals)} ${activeSymbol} available` +
+                (native ? ' — the network fee comes out of this too' : '')
               : undefined
           }
           error={
@@ -299,7 +348,7 @@ export function SolanaWithdraw({
           disabled={!destinationValid || !base || tooMuch || phase !== 'idle'}
           onClick={withdraw}
         >
-          {phaseLabel(phase, `Send ${symbol}`)}
+          {phaseLabel(phase, `Send ${activeSymbol}`)}
         </Button>
       </div>
     </>

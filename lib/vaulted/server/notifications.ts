@@ -214,9 +214,21 @@ export async function notifyPaymentRequested(invoice: {
   payerAddress: string | null
 }) {
   try {
+    // An open link is addressed to nobody in particular, so there is nobody to tell — whoever funds
+    // it arrives through the link itself. Not a delivery failure, so not logged as one.
     if (!invoice.payerAddress) return
+
     const payer = await accountForAddress(invoice.payerAddress)
-    if (!payer) return
+    if (!payer) {
+      // The delivery failure the job notifiers log, for the same reason: the escrow was raised, the
+      // client was simply never told, and a silent return leaves nothing anywhere to say why. This
+      // is what a request addressed to a wallet no account owns looks like from here.
+      console.error(
+        `[vaulted/notify payment requested] no account owns ${invoice.payerAddress}, so the client ` +
+          `of ${invoice.id} could not be told an escrow was raised for them`,
+      )
+      return
+    }
 
     const payee = await accountForAddress(invoice.payeeAddress)
     const from = payee ? `@${payee.name}` : `${invoice.payeeAddress.slice(0, 8)}…`

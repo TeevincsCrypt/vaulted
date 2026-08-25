@@ -2,7 +2,7 @@ import { getAddress, isAddress } from 'viem'
 import { prisma } from '@/lib/prisma'
 import { defaultChain, getChain, VAULTED_CHAINS } from '../registry'
 import { isSolanaAddress } from '../solana'
-import { ApiError } from './auth'
+import { ApiError, requireSigner } from './auth'
 import type { PrivyUser } from './privy'
 import { readSession } from './session'
 
@@ -198,6 +198,53 @@ export async function requireAccount(): Promise<SessionAccount> {
   const account = await currentAccount()
   if (!account) throw new ApiError('Sign in to continue.', 401)
   return account
+}
+
+/**
+ * Verifies a signature *and* that the wallet behind it is one this account owns.
+ *
+ * {@link requireSigner} proves control of an address and stops there, which is the wrong bar for
+ * anything that becomes a record owned by an account. Everything downstream is looked up by address
+ * through {@link accountForAddress}: who gets notified, whose posted-jobs list a job appears in,
+ * which wallet the job's escrow may be funded from. A record written under an address no account
+ * owns is not merely mislabelled, it is unreachable — nobody is told about it, it shows on nobody's
+ * dashboard, and the escrow raised against it can only be funded by a wallet this app no longer
+ * connects to.
+ *
+ * That is not hypothetical. A browser extension that had won wagmi's active-wallet slot signed real
+ * job postings, and each one stranded in exactly that way. Every signature was valid throughout —
+ * proving control of a wallet was simply never the same question as proving it was the user's.
+ *
+ * Signed out this is exactly {@link requireSigner}: there is no account to contradict, and a
+ * wallet-only caller is still entitled to act for the wallet it can sign for.
+ */
+export async function requireOwnedSigner(input: {
+  message: string
+  signature: string
+  expected: string
+  issuedAt: number
+  what: string
+}): Promise<`0x${string}`> {
+  const signer = await requireSigner(input)
+
+  /*
+    Signed out, or called from somewhere with no request to read a cookie from: there is no account
+    to contradict the signature, so the signature stands on its own. Note which way this fails —
+    towards the old behaviour, never towards refusing a wallet its owner can prove they hold.
+  */
+  const account = await currentAccount().catch(() => null)
+  if (!account) return signer
+
+  const owned = evmAddressesOf(account)
+  if (!owned.some((address) => address.toLowerCase() === signer.toLowerCase())) {
+    throw new ApiError(
+      `That signature came from ${signer.slice(0, 8)}…${signer.slice(-6)}, which is not a wallet on ` +
+        `@${account.name}. Vaulted signs with the wallet assigned to your account — if a browser ` +
+        'extension was asked to sign instead, disconnect this site from it and reload.',
+      403,
+    )
+  }
+  return signer
 }
 
 /**

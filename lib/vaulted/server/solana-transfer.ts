@@ -1,6 +1,7 @@
 import {
   Connection,
   PublicKey,
+  SystemProgram,
   TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js'
@@ -168,6 +169,125 @@ export async function prepareTokenTransfer(input: {
     recentBlockhash: blockhash,
     instructions,
   }).compileToV0Message()
+
+  const transaction = new VersionedTransaction(message)
+  return {
+    transaction: Buffer.from(transaction.serialize()).toString('base64'),
+    payer: payer.toBase58(),
+    blockhash,
+    lastValidBlockHeight,
+  }
+}
+
+/** Lamports per SOL. The native mint's 9 decimals, named rather than spelled out at the call site. */
+const LAMPORTS_PER_SOL = 1_000_000_000
+
+/**
+ * Builds a plain SOL transfer out of the account's own wallet.
+ *
+ * SOL is not an SPL token and does not move like one: there is no mint, no associated token
+ * account, and no rent to cover for the recipient. It is a single System Program instruction.
+ *
+ * The one thing this has to get right that the token path does not is the fee. A token transfer is
+ * paid for in SOL, so the amount and the fee come out of different balances and cannot collide.
+ * Here they come out of the same one, and a wallet that sends its entire balance has nothing left
+ * to pay the fee with — the network rejects it and the user is left staring at a failure with no
+ * explanation. So the fee is quoted for this exact message and checked against the balance before
+ * the bytes are handed back.
+ */
+export async function prepareNativeTransfer(input: {
+  chain: VaultedChain
+  /** The wallet that will sign and pay. Read from the session, never from a request body. */
+  payer: string
+  recipient: string
+  /** Lamports. */
+  amount: bigint
+}): Promise<PreparedTransfer> {
+  const { chain } = input
+  if (chain.family !== 'svm') {
+    throw new SolanaTransferError('That is not a Solana network.', 400)
+  }
+
+  let payer: PublicKey
+  let recipient: PublicKey
+  try {
+    payer = new PublicKey(input.payer)
+    recipient = new PublicKey(input.recipient)
+  } catch {
+    throw new SolanaTransferError('One of the addresses involved is not a valid Solana address.', 400)
+  }
+
+  /*
+    Off the ed25519 curve means this is not a wallet but a program-derived account — most often a
+    token account pasted in by mistake. Unlike the token path, where the transfer would simply fail,
+    SOL sent here would succeed and then be unreachable unless its owning program happens to sign
+    for it. Refused with the reason rather than sent.
+  */
+  if (!PublicKey.isOnCurve(recipient.toBytes())) {
+    throw new SolanaTransferError(
+      'That address is not a Solana wallet — it looks like a token account or a program address. ' +
+        'SOL sent there could not be recovered. Use the wallet address itself.',
+      400,
+    )
+  }
+
+  const connection = new Connection(solanaRpcUrl(chain.cluster ?? 'mainnet-beta', chain.rpcUrl), {
+    commitment: 'confirmed',
+  })
+
+  const [balanceRead, blockhashRead] = await Promise.all([
+    readWithDeadline(() => connection.getBalance(payer), 8_000),
+    readWithDeadline(() => connection.getLatestBlockhash('confirmed'), 8_000),
+  ])
+
+  if (!blockhashRead.ok) {
+    throw new SolanaTransferError(
+      `Solana could not be reached to prepare this transfer (${blockhashRead.reason}). Try again in ` +
+        'a moment.',
+      502,
+    )
+  }
+  if (!balanceRead.ok) {
+    throw new SolanaTransferError(
+      `Solana could not be reached to check the balance (${balanceRead.reason}). Try again in a ` +
+        'moment.',
+      502,
+    )
+  }
+
+  const { blockhash, lastValidBlockHeight } = blockhashRead.value
+  const balance = BigInt(balanceRead.value)
+
+  const message = new TransactionMessage({
+    payerKey: payer,
+    recentBlockhash: blockhash,
+    instructions: [
+      SystemProgram.transfer({
+        fromPubkey: payer,
+        toPubkey: recipient,
+        lamports: input.amount,
+      }),
+    ],
+  }).compileToV0Message()
+
+  /*
+    The real fee for these exact bytes, not a constant. A stale guess would be wrong in whichever
+    direction hurts: too low and the send fails at the network; too high and the wallet is told it
+    cannot afford something it can. When the RPC will not quote one, the signature fee — 5000
+    lamports per signature, and there is one — is used as the floor rather than treating the fee as
+    zero, which is the only value that could let an unaffordable transfer through.
+  */
+  const feeRead = await readWithDeadline(() => connection.getFeeForMessage(message, 'confirmed'), 8_000)
+  const fee = BigInt(feeRead.ok && feeRead.value.value !== null ? feeRead.value.value : 5_000)
+
+  if (balance < input.amount + fee) {
+    const short = (lamports: bigint) => (Number(lamports) / LAMPORTS_PER_SOL).toFixed(9).replace(/0+$/, '')
+    throw new SolanaTransferError(
+      `That wallet holds ${short(balance)} SOL, and this transfer needs ${short(input.amount)} plus ` +
+        `${short(fee)} for the fee. Send a little less, or top it up.`,
+      409,
+    )
+  }
 
   const transaction = new VersionedTransaction(message)
   return {
