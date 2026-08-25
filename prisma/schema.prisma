@@ -27,9 +27,14 @@ model Invoice {
   tokenSymbol   String
   tokenDecimals Int
 
-  /// Freelancer receiving the funds. Verified by signature at creation.
+  /// What the escrow holds: the zero address for the chain's own currency, otherwise the token.
+  /// tokenSymbol and tokenDecimals describe whichever it is.
+  asset String @default("0x0000000000000000000000000000000000000000")
+
+  /// Freelancer receiving the funds.
   payeeAddress    String
-  /// Client expected to pay. Null for an open link that anybody may fund.
+  /// Client expected to pay. Required: the escrow id is derived from both parties, so an escrow
+  /// with no named client has no id to publish.
   payerAddress    String?
   /// Address that actually funded the escrow, once observed on chain.
   fundedByAddress String?
@@ -44,8 +49,12 @@ model Invoice {
   protectionPeriod Int
   fundingDeadline  DateTime?
 
-  /// Signature by payeeAddress over the creation message, proving they published this link.
+  /// Signature over the creation message by whichever party published it, proving they authored
+  /// these terms. Either side may: the freelancer raising a request, or the client securing an
+  /// agreed job budget so the freelancer needs no balance at all.
   creationSignature String
+  /// Which side signed it — 'payee' or 'payer'.
+  creationSignedBy  String @default("payee")
 
   /// Last status observed on chain. Advisory only.
   indexedStatus String    @default("AWAITING_CHAIN")

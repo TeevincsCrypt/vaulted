@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Check, Clock, Lock, ShieldCheck } from 'lucide-react'
 import { erc20Abi } from 'viem'
-import { useAccount } from 'wagmi'
+import { useAccount, useBalance } from 'wagmi'
 import { VAULTED_ESCROW_ABI } from '@/lib/vaulted/generated/abi'
 import type { VaultedConfig } from '@/lib/vaulted/config'
 import { ZERO_ADDRESS } from '@/lib/vaulted/config'
@@ -14,7 +14,7 @@ import {
   useTokenBalance,
   useTransaction,
 } from '@/lib/vaulted/client'
-import { detailsHash as computeDetailsHash } from '@/lib/vaulted/invoice'
+import { detailsHash as computeDetailsHash, termsOf } from '@/lib/vaulted/invoice'
 import {
   formatAmount,
   formatAmountExact,
@@ -59,18 +59,7 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
   const amount = BigInt(invoice.amount)
   const expectedDetailsHash = useMemo(
     () =>
-      computeDetailsHash({
-        invoiceId: invoice.invoiceId,
-        chainId: invoice.chainId,
-        escrowAddress: invoice.escrowAddress,
-        tokenAddress: invoice.token.address,
-        payee: invoice.payee,
-        payer: (invoice.payer ?? ZERO_ADDRESS) as `0x${string}`,
-        amount: invoice.amount,
-        description: invoice.description,
-        protectionPeriod: invoice.protectionPeriod,
-        fundingDeadline: invoice.fundingDeadline,
-      }),
+      computeDetailsHash(termsOf(invoice)),
     [invoice],
   )
 
@@ -81,8 +70,15 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
   const trustworthy = termsMatch !== false && amountMatch !== false && payeeMatch !== false
 
   const secondsLeft = useChainCountdown(escrow?.secondsUntilExpiry ?? null, dataUpdatedAt)
-  const needsApproval = (allowance.data ?? BigInt(0)) < amount
-  const insufficientBalance = balance.data !== undefined && balance.data < amount
+  /*
+    A native escrow takes its amount as the call's value, so there is nothing to approve and no
+    allowance to read — the two-step approve-then-fund only exists because ERC-20 needs it.
+  */
+  const native = invoice.asset === ZERO_ADDRESS
+  const needsApproval = !native && (allowance.data ?? BigInt(0)) < amount
+  const nativeBalance = useBalance({ address, chainId: config.chainId })
+  const held = native ? nativeBalance.data?.value : (balance.data as bigint | undefined)
+  const insufficientBalance = held !== undefined && held < amount
   const addressedTo = invoice.payer && invoice.payer !== ZERO_ADDRESS ? invoice.payer : null
   const wrongClient = Boolean(addressedTo && address && addressedTo.toLowerCase() !== address.toLowerCase())
 
@@ -115,13 +111,19 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
   }, [approveTx.phase, allowance])
 
   function fund() {
-    fundTx.send({
+    /*
+      The amount travels with the call for a native escrow and must not for a token one — the
+      contract rejects value it was not expecting rather than letting it strand. Two branches
+      rather than a spread, because `value` is exactly what tells wagmi which of the two this is.
+    */
+    const request = {
       address: config.escrowAddress,
       abi: VAULTED_ESCROW_ABI,
       functionName: 'fund',
       args: [invoice.escrowId],
       chainId: config.chainId,
-    })
+    } as const
+    fundTx.send(native ? { ...request, value: amount } : request)
   }
 
   const state = escrow?.state ?? EscrowState.None
@@ -217,7 +219,7 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
                   addressedTo,
                   needsApproval,
                   insufficientBalance,
-                  balance: balance.data,
+                  balance: held,
                   approveTx,
                   fundTx,
                   approve,

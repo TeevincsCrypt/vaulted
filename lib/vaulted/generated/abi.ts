@@ -85,6 +85,11 @@ export const VAULTED_ESCROW_ABI = [
   },
   {
     "inputs": [],
+    "name": "InvalidPayee",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidPayer",
     "type": "error"
   },
@@ -96,12 +101,49 @@ export const VAULTED_ESCROW_ABI = [
         "type": "bytes32"
       },
       {
-        "internalType": "enum VaultedEscrow.State",
+        "internalType": "enum VaultedEscrowV2.State",
         "name": "actual",
         "type": "uint8"
       }
     ],
     "name": "InvalidState",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "NativeTransferFailed",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint96",
+        "name": "expected",
+        "type": "uint96"
+      },
+      {
+        "internalType": "uint256",
+        "name": "received",
+        "type": "uint256"
+      }
+    ],
+    "name": "NativeValueMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NativeValueNotAccepted",
     "type": "error"
   },
   {
@@ -244,6 +286,17 @@ export const VAULTED_ESCROW_ABI = [
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "asset",
+        "type": "address"
+      }
+    ],
+    "name": "UnsupportedAsset",
+    "type": "error"
+  },
+  {
     "inputs": [],
     "name": "ZeroAddress",
     "type": "error"
@@ -370,6 +423,12 @@ export const VAULTED_ESCROW_ABI = [
       },
       {
         "indexed": false,
+        "internalType": "address",
+        "name": "asset",
+        "type": "address"
+      },
+      {
+        "indexed": false,
         "internalType": "uint96",
         "name": "amount",
         "type": "uint96"
@@ -403,6 +462,12 @@ export const VAULTED_ESCROW_ABI = [
         "internalType": "uint64",
         "name": "createdAt",
         "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
       }
     ],
     "name": "EscrowCreated",
@@ -530,7 +595,7 @@ export const VAULTED_ESCROW_ABI = [
       },
       {
         "indexed": false,
-        "internalType": "enum VaultedEscrow.ReleaseTrigger",
+        "internalType": "enum VaultedEscrowV2.ReleaseTrigger",
         "name": "trigger",
         "type": "uint8"
       },
@@ -550,7 +615,7 @@ export const VAULTED_ESCROW_ABI = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "rescuedToken",
+        "name": "rescuedAsset",
         "type": "address"
       },
       {
@@ -610,6 +675,19 @@ export const VAULTED_ESCROW_ABI = [
   },
   {
     "inputs": [],
+    "name": "NATIVE_ASSET",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "acceptArbiter",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -649,6 +727,11 @@ export const VAULTED_ESCROW_ABI = [
         "type": "address"
       },
       {
+        "internalType": "address",
+        "name": "payer",
+        "type": "address"
+      },
+      {
         "internalType": "bytes32",
         "name": "salt",
         "type": "bytes32"
@@ -670,6 +753,11 @@ export const VAULTED_ESCROW_ABI = [
       {
         "internalType": "address",
         "name": "payer",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "asset",
         "type": "address"
       },
       {
@@ -699,6 +787,55 @@ export const VAULTED_ESCROW_ABI = [
       }
     ],
     "name": "createEscrow",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "escrowId",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "payee",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "asset",
+        "type": "address"
+      },
+      {
+        "internalType": "uint96",
+        "name": "amount",
+        "type": "uint96"
+      },
+      {
+        "internalType": "uint64",
+        "name": "protectionPeriod",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "fundingDeadline",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "detailsHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "salt",
+        "type": "bytes32"
+      }
+    ],
+    "name": "createEscrowFor",
     "outputs": [
       {
         "internalType": "bytes32",
@@ -750,7 +887,7 @@ export const VAULTED_ESCROW_ABI = [
     ],
     "name": "fund",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "payable",
     "type": "function"
   },
   {
@@ -781,7 +918,7 @@ export const VAULTED_ESCROW_ABI = [
             "type": "address"
           },
           {
-            "internalType": "enum VaultedEscrow.State",
+            "internalType": "enum VaultedEscrowV2.State",
             "name": "state",
             "type": "uint8"
           },
@@ -814,9 +951,14 @@ export const VAULTED_ESCROW_ABI = [
             "internalType": "bytes32",
             "name": "detailsHash",
             "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
           }
         ],
-        "internalType": "struct VaultedEscrow.Escrow",
+        "internalType": "struct VaultedEscrowV2.Escrow",
         "name": "",
         "type": "tuple"
       }
@@ -854,7 +996,7 @@ export const VAULTED_ESCROW_ABI = [
                 "type": "address"
               },
               {
-                "internalType": "enum VaultedEscrow.State",
+                "internalType": "enum VaultedEscrowV2.State",
                 "name": "state",
                 "type": "uint8"
               },
@@ -887,9 +1029,14 @@ export const VAULTED_ESCROW_ABI = [
                 "internalType": "bytes32",
                 "name": "detailsHash",
                 "type": "bytes32"
+              },
+              {
+                "internalType": "address",
+                "name": "asset",
+                "type": "address"
               }
             ],
-            "internalType": "struct VaultedEscrow.Escrow",
+            "internalType": "struct VaultedEscrowV2.Escrow",
             "name": "escrow",
             "type": "tuple"
           },
@@ -919,7 +1066,7 @@ export const VAULTED_ESCROW_ABI = [
             "type": "uint64"
           }
         ],
-        "internalType": "struct VaultedEscrow.EscrowView",
+        "internalType": "struct VaultedEscrowV2.EscrowView",
         "name": "view_",
         "type": "tuple"
       }
@@ -976,8 +1123,8 @@ export const VAULTED_ESCROW_ABI = [
   {
     "inputs": [
       {
-        "internalType": "contract IERC20",
-        "name": "token_",
+        "internalType": "address",
+        "name": "asset",
         "type": "address"
       },
       {
@@ -1025,7 +1172,7 @@ export const VAULTED_ESCROW_ABI = [
     "name": "stateOf",
     "outputs": [
       {
-        "internalType": "enum VaultedEscrow.State",
+        "internalType": "enum VaultedEscrowV2.State",
         "name": "",
         "type": "uint8"
       }
@@ -1060,12 +1207,18 @@ export const VAULTED_ESCROW_ABI = [
     "type": "function"
   },
   {
-    "inputs": [],
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "asset",
+        "type": "address"
+      }
+    ],
     "name": "totalLocked",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "locked",
         "type": "uint256"
       }
     ],

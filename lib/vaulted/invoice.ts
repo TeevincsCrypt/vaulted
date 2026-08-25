@@ -14,8 +14,14 @@ export type InvoiceTerms = {
   chainId: number
   escrowAddress: `0x${string}`
   tokenAddress: `0x${string}`
+  /**
+   * What the escrow holds: the zero address for the chain's own currency, otherwise the token.
+   * Committed to in the details hash, so a link cannot claim one asset while the escrow holds
+   * another.
+   */
+  asset: `0x${string}`
   payee: `0x${string}`
-  /** Zero address for an open link that anybody may fund. */
+  /** Required: the escrow id is derived from both parties, so there is no unaddressed escrow. */
   payer: `0x${string}`
   /** Amount in token base units, as a decimal string. */
   amount: string
@@ -25,6 +31,8 @@ export type InvoiceTerms = {
   /** Unix seconds, or 0 for a link that never goes stale. */
   fundingDeadline: number
 }
+
+const ZERO = '0x0000000000000000000000000000000000000000'
 
 const INVOICE_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
 export const INVOICE_ID_PATTERN = /^v_[0-9a-z]{20}$/
@@ -48,8 +56,14 @@ export function escrowSalt(invoiceId: string): `0x${string}` {
 }
 
 /**
- * Mirrors `VaultedEscrow.computeEscrowId`:
- * `keccak256(abi.encode(block.chainid, address(this), payee, salt))`.
+ * Mirrors `VaultedEscrowV2.computeEscrowId`:
+ * `keccak256(abi.encode(block.chainid, address(this), payee, payer, salt))`.
+ *
+ * Both parties, not just the payee. v1 namespaced ids by the payee alone, which was safe only
+ * because the payee was the only account that could create an escrow. Now that a client can create
+ * one and name the freelancer, an id derived from the payee and a salt would be reachable by anyone
+ * who had seen the payment link — and since ids are never reopened, occupying one would kill it
+ * permanently. With the payer folded in, nobody outside the pair can reach their id.
  *
  * Verified against the deployed contract by `scripts/check-escrow-id-vector.mjs`.
  */
@@ -57,16 +71,54 @@ export function computeEscrowId(input: {
   chainId: number
   escrowAddress: `0x${string}`
   payee: `0x${string}`
+  payer: `0x${string}`
   salt: `0x${string}`
 }): `0x${string}` {
   return keccak256(
-    encodeAbiParameters(parseAbiParameters('uint256, address, address, bytes32'), [
+    encodeAbiParameters(parseAbiParameters('uint256, address, address, address, bytes32'), [
       BigInt(input.chainId),
       getAddress(input.escrowAddress),
       getAddress(input.payee),
+      getAddress(input.payer),
       input.salt,
     ]),
   )
+}
+
+/**
+ * The terms a stored invoice commits to.
+ *
+ * Every page that verifies a link recomputes the details hash, and every one of them has to build
+ * the terms from the same fields in the same way — a single field read differently in one place is
+ * a hash mismatch that reads as "this link is not safe to pay". Doing it here once means there is
+ * only one definition to get right.
+ */
+export function termsOf(invoice: {
+  invoiceId: string
+  chainId: number
+  escrowAddress: `0x${string}`
+  asset: `0x${string}`
+  token: { address: `0x${string}` }
+  payee: `0x${string}`
+  payer: `0x${string}` | null
+  amount: string
+  description: string
+  protectionPeriod: number
+  fundingDeadline: number
+}): InvoiceTerms {
+  return {
+    invoiceId: invoice.invoiceId,
+    chainId: invoice.chainId,
+    escrowAddress: invoice.escrowAddress,
+    tokenAddress: invoice.token.address,
+    asset: invoice.asset,
+    payee: invoice.payee,
+    payer: (invoice.payer ?? ZERO) as `0x${string}`,
+    amount: invoice.amount,
+    description: invoice.description,
+    protectionPeriod: invoice.protectionPeriod,
+    fundingDeadline: invoice.fundingDeadline,
+  }
 }
 
 /**
@@ -75,11 +127,14 @@ export function computeEscrowId(input: {
  */
 export function canonicalTerms(terms: InvoiceTerms): string {
   return JSON.stringify({
-    v: 1,
+    // Bumped with the asset: a v1 hash and a v2 hash over the same terms must not collide, or a
+    // link written before escrows could hold ether would verify against one that does.
+    v: 2,
     invoiceId: terms.invoiceId,
     chainId: terms.chainId,
     escrow: getAddress(terms.escrowAddress),
     token: getAddress(terms.tokenAddress),
+    asset: getAddress(terms.asset),
     payee: getAddress(terms.payee),
     payer: getAddress(terms.payer),
     amount: terms.amount,
@@ -99,8 +154,12 @@ export function detailsHash(terms: InvoiceTerms): `0x${string}` {
 }
 
 /**
- * Message the payee signs when creating an invoice. The API verifies the recovered signer is the
- * payee, so nobody can publish a payment link in someone else's name.
+ * Message signed when creating an invoice.
+ *
+ * Either side may sign it, and the API verifies the recovered signer is the party it claims to be,
+ * so nobody can publish terms in someone else's name. The freelancer signs when raising a payment
+ * request of their own; the client signs when securing the budget for a job already agreed, which
+ * is what lets the freelancer hold no balance and still be hired.
  */
 export function invoiceCreationMessage(terms: InvoiceTerms): string {
   return [
@@ -108,8 +167,9 @@ export function invoiceCreationMessage(terms: InvoiceTerms): string {
     '',
     `Invoice: ${terms.invoiceId}`,
     `Payee: ${getAddress(terms.payee)}`,
-    `Client: ${terms.payer === ZERO ? 'anyone with the link' : getAddress(terms.payer)}`,
-    `Amount: ${terms.amount} (base units of ${getAddress(terms.tokenAddress)})`,
+    `Client: ${getAddress(terms.payer)}`,
+    `Asset: ${terms.asset === ZERO ? 'native currency' : getAddress(terms.asset)}`,
+    `Amount: ${terms.amount} (base units)`,
     `Chain: ${terms.chainId}`,
     `Escrow: ${getAddress(terms.escrowAddress)}`,
     `Protection period: ${terms.protectionPeriod}s`,
@@ -122,4 +182,3 @@ export function invoiceCreationMessage(terms: InvoiceTerms): string {
   ].join('\n')
 }
 
-const ZERO = '0x0000000000000000000000000000000000000000'

@@ -54,6 +54,16 @@ export function CreateRequest({
   const [error, setError] = useState<string | null>(null)
   const [invoiceId, setInvoiceId] = useState<string | null>(null)
 
+  /*
+    Which asset the escrow will hold. One deployment serves the chain's own currency and one token,
+    so this is a choice between exactly two things — not a token picker.
+  */
+  const [asset, setAsset] = useState<'token' | 'native'>('token')
+  const native = asset === 'native'
+  const assetAddress = (native ? ZERO_ADDRESS : config.token.address) as `0x${string}`
+  const assetSymbol = native ? config.chain.nativeCurrency.symbol : config.token.symbol
+  const assetDecimals = native ? config.chain.nativeCurrency.decimals : config.token.decimals
+
   const [clientAddress, setClientAddress] = useState(prefill?.client ?? '')
   // A handle typed into the client field is resolved to the wallet linked to that account.
   const [resolving, setResolving] = useState(false)
@@ -65,7 +75,7 @@ export function CreateRequest({
   const [protectionPeriod, setProtectionPeriod] = useState(config.defaultProtectionPeriod)
   const [deadlineDays, setDeadlineDays] = useState('')
 
-  const amount = useMemo(() => parseAmount(amountInput, config.token.decimals), [amountInput, config.token.decimals])
+  const amount = useMemo(() => parseAmount(amountInput, assetDecimals), [amountInput, assetDecimals])
 
   // Registry key for the configured chain, so handle resolution asks for the right network.
   const chainKey = getChainByEvmId(config.chainId)?.key ?? null
@@ -74,8 +84,13 @@ export function CreateRequest({
   const looksLikeHandle = raw.startsWith('@') || /^[a-z0-9_]{3,20}$/i.test(raw)
   const resolvedAddress = resolved?.address ?? null
   const effectiveClient = isAddress(raw) ? raw : resolvedAddress
+  /*
+    A client is required now, where it used to be optional. The escrow id is derived from both
+    parties, so an escrow addressed to nobody has no id to publish — see the contract's
+    computeEscrowId. "Open link anyone can fund" is gone rather than quietly broken.
+  */
   const clientValid =
-    raw === '' || isAddress(raw) || (looksLikeHandle && resolved !== null && resolved.address !== null)
+    isAddress(raw) || (looksLikeHandle && resolved !== null && resolved.address !== null)
 
   // Resolve a typed handle, debounced, whenever it is not already an address.
   useEffect(() => {
@@ -127,8 +142,9 @@ export function CreateRequest({
       chainId: config.chainId,
       escrowAddress: config.escrowAddress,
       tokenAddress: config.token.address,
+      asset: assetAddress,
       payee: address,
-      payer: (effectiveClient || ZERO_ADDRESS) as `0x${string}`,
+      payer: effectiveClient as `0x${string}`,
       amount: amount.toString(),
       description: description.trim(),
       protectionPeriod,
@@ -147,7 +163,9 @@ export function CreateRequest({
           invoiceId: id,
           chainId: config.chainId,
           payee: address,
-          payer: effectiveClient || null,
+          payer: effectiveClient,
+          asset: assetAddress,
+          signedBy: 'payee',
           amount: amount.toString(),
           description: description.trim(),
           protectionPeriod,
@@ -168,6 +186,7 @@ export function CreateRequest({
         functionName: 'createEscrow',
         args: [
           terms.payer,
+          assetAddress,
           amount,
           protectionPeriod,
           fundingDeadline,
@@ -263,8 +282,36 @@ export function CreateRequest({
       </p>
 
       <div className="mt-6 flex flex-col gap-4">
+        <Field label="Paid in" hint="What the escrow will hold until it settles.">
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: 'token' as const, label: config.token.symbol },
+              { key: 'native' as const, label: config.chain.nativeCurrency.symbol },
+            ]).map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                disabled={busy || Boolean(prefill)}
+                onClick={() => {
+                  setAsset(option.key)
+                  // Typed against the other asset's decimals — the same digits are a different
+                  // quantity here.
+                  setAmountInput('')
+                }}
+                className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
+                  asset === option.key
+                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
+                    : 'border-border hover:bg-muted'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+
         <Field
-          label={`Amount (${config.token.symbol})`}
+          label={`Amount (${assetSymbol})`}
           error={amountInput && !amount ? 'Enter an amount greater than zero.' : null}
         >
           <div className="relative">
@@ -277,7 +324,7 @@ export function CreateRequest({
               disabled={busy || Boolean(prefill)}
             />
             <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
-              {config.token.symbol}
+              {assetSymbol}
             </span>
           </div>
         </Field>
@@ -295,7 +342,6 @@ export function CreateRequest({
 
         <Field
           label="Client"
-          optional
           error={
             !clientValid
               ? looksLikeHandle && !resolving
@@ -312,7 +358,7 @@ export function CreateRequest({
               ? 'Looking up that handle…'
               : resolved?.address
                 ? `@${resolved.handle} → ${resolved.address.slice(0, 10)}…${resolved.address.slice(-6)}`
-                : 'An @handle or a 0x address. Leave empty for an open link anyone can fund.'
+                : 'An @handle or a 0x address. An escrow names both sides, so this is required.'
           }
         >
           <input
@@ -383,7 +429,7 @@ export function CreateRequest({
         ) : (
           <NetworkGuard>
             <Button size="lg" full disabled={!canSubmit} busy={busy} onClick={submit}>
-              {amount ? `Create request for ${formatAmount(amount, config.token.decimals)} ${config.token.symbol}` : 'Create payment request'}
+              {amount ? `Create request for ${formatAmount(amount, assetDecimals)} ${assetSymbol}` : 'Create payment request'}
             </Button>
           </NetworkGuard>
         )}

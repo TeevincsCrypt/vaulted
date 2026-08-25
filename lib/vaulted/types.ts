@@ -5,6 +5,9 @@ export type SerialisedInvoice = {
   salt: `0x${string}`
   chainId: number
   escrowAddress: `0x${string}`
+  /** What the escrow holds: the zero address for the chain's own currency, otherwise the token. */
+  asset: `0x${string}`
+  /** Describes {@link asset}, whichever of the two it is — not always the deployment's token. */
   token: { address: `0x${string}`; symbol: string; decimals: number }
   payee: `0x${string}`
   payer: `0x${string}` | null

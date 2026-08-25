@@ -34,7 +34,11 @@ const vectorChain = {
 }
 const evm = new EvmEscrowAdapter(vectorChain)
 for (const testCase of vector.cases) {
-  const derived = evm.deriveEscrowId({ payee: testCase.payee, salt: escrowSalt(testCase.invoiceId) })
+  const derived = evm.deriveEscrowId({
+    payee: testCase.payee,
+    payer: testCase.payer,
+    salt: escrowSalt(testCase.invoiceId),
+  })
   check(derived.toLowerCase() === testCase.escrowId.toLowerCase(), `${testCase.invoiceId} -> ${testCase.escrowId.slice(0, 14)}…`)
 }
 
@@ -42,6 +46,18 @@ console.log('\n[2] EVM adapter builds well-formed write descriptors')
 const id = vector.cases[0].escrowId
 for (const [name, request] of [
   ['fund', evm.buildFund(id)],
+  ['createEscrow', evm.buildCreate({
+    payee: vector.cases[0].payee, payer: vector.cases[0].payer,
+    asset: '0x0000000000000000000000000000000000000000', amount: '1',
+    protectionPeriod: 3600, fundingDeadline: 0, detailsHash: `0x${'0'.repeat(64)}`,
+    salt: vector.cases[0].salt, by: 'payee',
+  })],
+  ['createEscrowFor', evm.buildCreate({
+    payee: vector.cases[0].payee, payer: vector.cases[0].payer,
+    asset: '0x0000000000000000000000000000000000000000', amount: '1',
+    protectionPeriod: 3600, fundingDeadline: 0, detailsHash: `0x${'0'.repeat(64)}`,
+    salt: vector.cases[0].salt, by: 'payer',
+  })],
   ['release', evm.buildRelease(id)],
   ['refund', evm.buildRefund(id)],
   ['executeTimeout', evm.buildExecuteTimeout(id)],
@@ -72,8 +88,8 @@ check(
 
 const solana = new SolanaEscrowAdapter(solanaChain)
 for (const [name, run] of [
-  ['deriveEscrowId', () => solana.deriveEscrowId({ payee: 'x', salt: 'y' })],
-  ['buildCreate', () => solana.buildCreate({ payer: 'x', amount: '1', protectionPeriod: 3600, fundingDeadline: 0, detailsHash: '0x0', salt: '0x0' })],
+  ['deriveEscrowId', () => solana.deriveEscrowId({ payee: 'x', payer: 'y', salt: 'z' })],
+  ['buildCreate', () => solana.buildCreate({ payee: 'x', payer: 'y', asset: 'z', amount: '1', protectionPeriod: 3600, fundingDeadline: 0, detailsHash: '0x0', salt: '0x0', by: 'payer' })],
   ['buildFund', () => solana.buildFund('x')],
   ['buildRelease', () => solana.buildRelease('x')],
   ['buildRefund', () => solana.buildRefund('x')],

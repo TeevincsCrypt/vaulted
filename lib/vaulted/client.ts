@@ -150,6 +150,25 @@ export type TxState = {
 }
 
 /**
+ * A contract write, with `value` allowed on any of them.
+ *
+ * wagmi types `value` per ABI entry — permitted on a payable function, `undefined` on a nonpayable
+ * one — but that narrowing depends on the call site's literal `functionName` and does not survive
+ * being passed through a wrapper whose parameter is the already-instantiated union. Dropping it
+ * from each member of the union and re-adding it once is what lets `useTransaction` stay a single
+ * hook rather than every native-value write being inlined at its call site.
+ *
+ * Nothing is given up by widening it: the rule that matters is the contract's, and the contract
+ * enforces it — value sent to a token escrow is rejected rather than stranded, and a native escrow
+ * insists the value equals its amount exactly.
+ */
+type WriteVariables = Parameters<ReturnType<typeof useWriteContract>['writeContractAsync']>[0]
+
+type WriteRequest = (WriteVariables extends unknown ? Omit<WriteVariables, 'value'> : never) & {
+  value?: bigint
+}
+
+/**
  * Wraps a write and its receipt into one state machine, so the UI can show a real transaction
  * lifecycle — wallet prompt, mined, confirmed — with the actual hash at every step.
  */
@@ -191,11 +210,11 @@ export function useTransaction() {
     resetSend()
   }
 
-  async function send(request: Parameters<typeof writeContractAsync>[0]): Promise<`0x${string}` | null> {
+  async function send(request: WriteRequest): Promise<`0x${string}` | null> {
     clear()
     setSigning(true)
     try {
-      return await writeContractAsync(request)
+      return await writeContractAsync(request as Parameters<typeof writeContractAsync>[0])
     } catch (cause) {
       setError(readableError(cause))
       return null

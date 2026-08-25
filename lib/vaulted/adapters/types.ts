@@ -21,6 +21,8 @@ export type TxRequest =
       abi: readonly unknown[]
       functionName: string
       args: readonly unknown[]
+      /** Wei to send with the call. Only funding a native escrow sets it. */
+      value?: bigint
     }
   | {
       kind: 'svm'
@@ -51,23 +53,44 @@ export type EscrowSnapshot = {
 }
 
 export type CreateEscrowParams = {
+  payee: string
   payer: string
+  /**
+   * What the escrow holds. The zero address means the chain's own currency; anything else must be
+   * the token the deployment was constructed with, the only ERC-20 it accepts.
+   */
+  asset: string
   /** Base units, as a decimal string. */
   amount: string
   protectionPeriod: number
   fundingDeadline: number
   detailsHash: string
   salt: string
+  /**
+   * Which side is sending this transaction.
+   *
+   * 'payer' is the route that lets a freelancer hold nothing: the client creates the escrow naming
+   * them, so the freelancer never sends a transaction and never needs a balance. 'payee' is a
+   * freelancer raising their own payment request, which is still how an unsolicited one works.
+   */
+  by: 'payer' | 'payee'
 }
 
 export interface EscrowAdapter {
   readonly chain: VaultedChain
 
-  /** Deterministic escrow id, computable before the escrow exists on chain. */
-  deriveEscrowId(input: { payee: string; salt: string }): string
+  /**
+   * Deterministic escrow id, computable before the escrow exists on chain.
+   *
+   * Both parties, because either may create it — see the note on the contract's own
+   * `computeEscrowId`. An id reachable from the payee alone could be occupied by anyone who had
+   * seen the payment link.
+   */
+  deriveEscrowId(input: { payee: string; payer: string; salt: string }): string
 
   buildCreate(params: CreateEscrowParams): TxRequest
-  buildFund(escrowId: string): TxRequest
+  /** Funding a native escrow carries the amount as value, so the caller needs it back. */
+  buildFund(escrowId: string, value?: string): TxRequest
   buildRelease(escrowId: string): TxRequest
   buildRefund(escrowId: string): TxRequest
   buildDispute(escrowId: string, evidenceHash: string): TxRequest

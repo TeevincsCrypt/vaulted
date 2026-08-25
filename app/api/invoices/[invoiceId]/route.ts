@@ -31,6 +31,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     chainId: invoice.chainId,
     escrowAddress: invoice.escrowAddress as `0x${string}`,
     tokenAddress: invoice.tokenAddress as `0x${string}`,
+    asset: invoice.asset as `0x${string}`,
     payee: invoice.payeeAddress as `0x${string}`,
     payer: (invoice.payerAddress ?? ZERO_ADDRESS) as `0x${string}`,
     amount: invoice.amount,

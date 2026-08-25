@@ -18,39 +18,6 @@ export type VaultedDeployment = {
  * Chains VaultedEscrow is actually deployed on. An absent chain means exactly that: not
  * deployed. The app must never substitute a placeholder address for a missing entry.
  */
-export const VAULTED_DEPLOYMENTS: Record<number, VaultedDeployment> = {
-  "8453": {
-    "chainId": 8453,
-    "network": "base",
-    "address": "0xfDF21Eb29D35286002FC0De5701dbEEDdC2A9ed0",
-    "token": {
-      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-      "symbol": "USDC",
-      "name": "USD Coin",
-      "decimals": 6
-    },
-    "arbiter": "0xdF9124Ed99aD229af02FE3aaB06B6384d07b8c18",
-    "defaultProtectionPeriod": 86400,
-    "deploymentTransactionHash": "0x91c12703c06d46ead15bf71fb2393201d612bc4b015783e6fc5ed33cdd8ca335",
-    "deploymentBlockNumber": 50428897,
-    "deployedAt": "2026-08-25T08:39:09.391Z"
-  },
-  "84532": {
-    "chainId": 84532,
-    "network": "baseSepolia",
-    "address": "0xDA365Cc851d26873f40c35B7D261DE86F110d969",
-    "token": {
-      "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "symbol": "USDC",
-      "name": "USDC",
-      "decimals": 6
-    },
-    "arbiter": "0xBcAF4B9516889e40Fae86D47FD1351a2bf4549Ea",
-    "defaultProtectionPeriod": 86400,
-    "deploymentTransactionHash": "0xae51e525a00aab5ecaa6d14b1eaa8e2780b2cab58561de591ddddd6e35295a92",
-    "deploymentBlockNumber": 45832394,
-    "deployedAt": "2026-08-22T21:11:31.360Z"
-  }
-} as const
+export const VAULTED_DEPLOYMENTS: Record<number, VaultedDeployment> = {} as const
 
-export const VAULTED_DEPLOYED_CHAIN_IDS: number[] = [8453, 84532]
+export const VAULTED_DEPLOYED_CHAIN_IDS: number[] = []

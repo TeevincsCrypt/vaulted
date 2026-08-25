@@ -7,7 +7,7 @@ import { useAccount } from 'wagmi'
 import type { VaultedConfig } from '@/lib/vaulted/config'
 import { ZERO_ADDRESS } from '@/lib/vaulted/config'
 import { useChainCountdown, useEscrow, useTransaction } from '@/lib/vaulted/client'
-import { detailsHash as computeDetailsHash } from '@/lib/vaulted/invoice'
+import { detailsHash as computeDetailsHash, termsOf } from '@/lib/vaulted/invoice'
 import { VAULTED_ESCROW_ABI } from '@/lib/vaulted/generated/abi'
 import {
   formatAmount,
@@ -47,9 +47,9 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
   const isPayee = address?.toLowerCase() === invoice.payee.toLowerCase()
 
   /**
-   * Recreates the escrow this request already committed to. `salt` and `detailsHash` are stored on
-   * the row from when the link was published, so this reruns the exact same `createEscrow` call —
-   * the one that failed or was rejected the first time — rather than asking for a new signature.
+   * Recreates the escrow this request already committed to. Every argument is stored on the row
+   * from when the link was published, so this reruns the exact same call — the one that failed or
+   * was rejected the first time — rather than asking for a new signature.
    */
   async function retryCreateEscrow() {
     const hash = await tx.send({
@@ -58,6 +58,7 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
       functionName: 'createEscrow',
       args: [
         (invoice.payer ?? ZERO_ADDRESS) as `0x${string}`,
+        invoice.asset,
         BigInt(invoice.amount),
         invoice.protectionPeriod,
         invoice.fundingDeadline,
@@ -79,18 +80,7 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
     setShareUrl(`${window.location.origin}/pay/${invoice.invoiceId}`)
   }, [invoice.invoiceId])
 
-  const expectedDetailsHash = computeDetailsHash({
-    invoiceId: invoice.invoiceId,
-    chainId: invoice.chainId,
-    escrowAddress: invoice.escrowAddress,
-    tokenAddress: invoice.token.address,
-    payee: invoice.payee,
-    payer: (invoice.payer ?? ZERO_ADDRESS) as `0x${string}`,
-    amount: invoice.amount,
-    description: invoice.description,
-    protectionPeriod: invoice.protectionPeriod,
-    fundingDeadline: invoice.fundingDeadline,
-  })
+  const expectedDetailsHash = computeDetailsHash(termsOf(invoice))
   const termsMatch = escrow ? escrow.detailsHash.toLowerCase() === expectedDetailsHash.toLowerCase() : null
 
   return (

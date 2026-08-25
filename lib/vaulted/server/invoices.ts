@@ -35,11 +35,15 @@ export type CreateInvoiceInput = {
   chainId: number
   payee: string
   payer?: string | null
+  /** Zero address for the chain's own currency; otherwise the deployment's token. */
+  asset?: string | null
   amount: string
   description: string
   protectionPeriod: number
   fundingDeadline?: number | null
   signature: string
+  /** Which side signed. Defaults to the payee, which is how a raised request works. */
+  signedBy?: 'payee' | 'payer' | null
   /** Optional: the job this escrow secures. Validated against the job's client. */
   jobId?: string | null
 }
@@ -47,11 +51,18 @@ export type CreateInvoiceInput = {
 /**
  * Publishes a payment request.
  *
- * The payee's signature over the canonical terms is verified before anything is stored, so a link
- * can only ever be published by the wallet that will receive the money. Note what this does and
- * does not do: it authenticates the metadata behind the link. It creates no escrow and moves no
- * funds — the payee still has to send `createEscrow` from the same wallet, and the payment page
- * checks the on-chain `detailsHash` against these terms before inviting anyone to pay.
+ * A signature over the canonical terms is verified before anything is stored, so terms can only be
+ * published by a wallet that is party to them. Either side may sign, and which one matters:
+ *
+ *   payee  a freelancer raising a request of their own. They will then create the escrow, and pay
+ *          the gas for it.
+ *   payer  a client securing the budget for a job already agreed. The client goes on to create and
+ *          fund the escrow in one go, so the freelancer signs nothing and sends nothing — which is
+ *          the only way somebody holding a zero balance can be hired at all.
+ *
+ * Note what this does and does not do. It authenticates the metadata behind the link. It creates no
+ * escrow and moves no funds, and the payment page checks the on-chain `detailsHash` against these
+ * terms before inviting anyone to pay.
  */
 export async function createInvoice(input: CreateInvoiceInput) {
   if (!isValidInvoiceId(input.invoiceId)) {
@@ -64,8 +75,19 @@ export async function createInvoice(input: CreateInvoiceInput) {
   if (!isConfigured(config)) throw new InvoiceError(config.message, 503)
 
   const payee = getAddress(input.payee)
-  const payer = input.payer ? getAddress(input.payer) : ZERO_ADDRESS
-  if (payer !== ZERO_ADDRESS && payer.toLowerCase() === payee.toLowerCase()) {
+  /*
+   * A named client is required now, where it used to be optional.
+   *
+   * The escrow id is derived from both parties, so it cannot be known before the payer is — which
+   * is the price of letting either side create the escrow, and of a stranger not being able to
+   * occupy an id they have merely seen. An "open link anyone may fund" has no id to publish, so the
+   * contract has no such thing any more and neither does this.
+   */
+  if (!input.payer) {
+    throw new InvoiceError('Say which client this request is for — an escrow names both sides.', 400)
+  }
+  const payer = getAddress(input.payer)
+  if (payer.toLowerCase() === payee.toLowerCase()) {
     throw new InvoiceError('The client and the payee cannot be the same wallet.', 400)
   }
 
@@ -94,11 +116,22 @@ export async function createInvoice(input: CreateInvoiceInput) {
     throw new InvoiceError('fundingDeadline must be in the future.', 400)
   }
 
+  /*
+   * The asset the escrow will hold. Only two are possible, both fixed in the contract at
+   * construction, so anything else is refused here rather than reaching a call that would revert.
+   */
+  const asset = input.asset ? getAddress(input.asset) : ZERO_ADDRESS
+  const native = asset === ZERO_ADDRESS
+  if (!native && asset.toLowerCase() !== config.token.address.toLowerCase()) {
+    throw new InvoiceError(`${config.chain.name} escrows cannot hold that asset.`, 400)
+  }
+
   const terms: InvoiceTerms = {
     invoiceId: input.invoiceId,
     chainId: config.chainId,
     escrowAddress: config.escrowAddress,
     tokenAddress: config.token.address,
+    asset,
     payee,
     payer,
     amount: amount.toString(),
@@ -107,28 +140,30 @@ export async function createInvoice(input: CreateInvoiceInput) {
     fundingDeadline,
   }
 
+  const signedBy = input.signedBy === 'payer' ? 'payer' : 'payee'
+  const author = signedBy === 'payer' ? payer : payee
+
   const signer = await recoverMessageAddress({
     message: invoiceCreationMessage(terms),
     signature: input.signature as `0x${string}`,
   }).catch(() => null)
 
-  if (!signer || signer.toLowerCase() !== payee.toLowerCase()) {
-    throw new InvoiceError('Signature does not match the payee wallet.', 401)
+  if (!signer || signer.toLowerCase() !== author.toLowerCase()) {
+    throw new InvoiceError(`Signature does not match the ${signedBy} wallet.`, 401)
   }
 
   /*
-   * The payee must be a wallet the signed-in account owns, for the same reason job postings must —
-   * see {@link requireOwnedSigner}. The contract makes the escrow's creator its payee, so an escrow
-   * raised under an address no account owns pays out to a wallet Vaulted will not connect to, and
-   * the request never reaches the payee's own list of what they are owed.
+   * Whoever signed must be a wallet the signed-in account owns, for the same reason job postings
+   * must — see {@link requireOwnedSigner}. Terms authored under an address no account owns are
+   * unreachable: nobody is notified about them, and they appear on nobody's list.
    */
   const signedInAs = await currentAccount().catch(() => null)
   if (signedInAs) {
     const owned = evmAddressesOf(signedInAs)
-    if (!owned.some((address) => address.toLowerCase() === payee.toLowerCase())) {
+    if (!owned.some((address) => address.toLowerCase() === author.toLowerCase())) {
       throw new InvoiceError(
-        `That signature came from ${payee.slice(0, 8)}…${payee.slice(-6)}, which is not a wallet on ` +
-          `@${signedInAs.name}. This escrow would pay out to a wallet your account does not own.`,
+        `That signature came from ${author.slice(0, 8)}…${author.slice(-6)}, which is not a wallet ` +
+          `on @${signedInAs.name}.`,
         403,
       )
     }
@@ -139,6 +174,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
     chainId: config.chainId,
     escrowAddress: config.escrowAddress,
     payee,
+    payer,
     salt,
   })
 
@@ -148,11 +184,10 @@ export async function createInvoice(input: CreateInvoiceInput) {
   /*
    * Linking to a job.
    *
-   * The contract makes the escrow's creator its payee, so it is the hired freelancer who raises the
-   * request and the client who funds it. Both ends must therefore match the job: the signer is the
-   * assignee, and the named payer is the client who posted it. Without both checks anyone could
-   * bolt an escrow of their own choosing onto someone else's job and have the UI present it as that
-   * job's secured budget.
+   * Both ends must match the job whichever side authored the terms: the payee is the assignee and
+   * the payer is the client who posted it. Without both checks anyone could bolt an escrow of their
+   * own choosing onto someone else's job and have the UI present it as that job's secured budget.
+   * Only who signed differs, and that is already established above.
    */
   let jobId: string | null = null
   if (input.jobId) {
@@ -163,7 +198,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
       throw new InvoiceError('That job has not been assigned to anyone yet.', 409)
     }
     if (job.assignedTo.toLowerCase() !== payee.toLowerCase()) {
-      throw new InvoiceError('Only the freelancer assigned to this job can raise its escrow.', 403)
+      throw new InvoiceError('A job escrow must pay the freelancer assigned to it.', 403)
     }
     if (payer.toLowerCase() !== job.clientAddress.toLowerCase()) {
       throw new InvoiceError('A job escrow must be addressed to the client who posted the job.', 400)
@@ -179,10 +214,14 @@ export async function createInvoice(input: CreateInvoiceInput) {
       chainId: config.chainId,
       escrowAddress: config.escrowAddress,
       tokenAddress: config.token.address,
-      tokenSymbol: config.token.symbol,
-      tokenDecimals: config.token.decimals,
+      asset,
+      // Whichever asset this escrow holds, described in its own units — a native escrow is not
+      // denominated in the token however it is displayed elsewhere.
+      tokenSymbol: native ? config.chain.nativeCurrency.symbol : config.token.symbol,
+      tokenDecimals: native ? config.chain.nativeCurrency.decimals : config.token.decimals,
       payeeAddress: payee,
-      payerAddress: payer === ZERO_ADDRESS ? null : payer,
+      payerAddress: payer,
+      creationSignedBy: signedBy,
       amount: amount.toString(),
       description,
       detailsHash: computeDetailsHash(terms),
@@ -298,6 +337,7 @@ export function serialiseInvoice(invoice: NonNullable<Awaited<ReturnType<typeof 
     salt: invoice.salt,
     chainId: invoice.chainId,
     escrowAddress: invoice.escrowAddress,
+    asset: invoice.asset,
     token: {
       address: invoice.tokenAddress,
       symbol: invoice.tokenSymbol,

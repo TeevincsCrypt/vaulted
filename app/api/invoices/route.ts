@@ -36,11 +36,13 @@ export async function POST(request: NextRequest) {
       chainId: Number(body.chainId),
       payee: String(body.payee ?? ''),
       payer: body.payer ? String(body.payer) : null,
+      asset: body.asset ? String(body.asset) : null,
       amount: String(body.amount ?? ''),
       description: String(body.description ?? ''),
       protectionPeriod: Number(body.protectionPeriod ?? 0),
       fundingDeadline: body.fundingDeadline ? Number(body.fundingDeadline) : null,
       signature: String(body.signature ?? ''),
+      signedBy: body.signedBy === 'payer' ? 'payer' : 'payee',
       jobId: body.jobId ? String(body.jobId) : null,
     })
     return NextResponse.json({ invoice: serialiseInvoice(invoice) }, { status: 201 })

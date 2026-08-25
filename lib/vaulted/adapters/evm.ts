@@ -41,19 +41,20 @@ export class EvmEscrowAdapter implements EscrowAdapter {
     return this.chain.evmChainId as number
   }
 
-  /** Mirrors `VaultedEscrow.computeEscrowId`. Verified against the contract by test vectors. */
-  deriveEscrowId({ payee, salt }: { payee: string; salt: string }): string {
+  /** Mirrors `VaultedEscrowV2.computeEscrowId`. Verified against the contract by test vectors. */
+  deriveEscrowId({ payee, payer, salt }: { payee: string; payer: string; salt: string }): string {
     return keccak256(
-      encodeAbiParameters(parseAbiParameters('uint256, address, address, bytes32'), [
+      encodeAbiParameters(parseAbiParameters('uint256, address, address, address, bytes32'), [
         BigInt(this.chainId),
         this.escrowAddress,
         getAddress(payee),
+        getAddress(payer),
         salt as `0x${string}`,
       ]),
     )
   }
 
-  private write(functionName: string, args: readonly unknown[]): TxRequest {
+  private write(functionName: string, args: readonly unknown[], value?: bigint): TxRequest {
     return {
       kind: 'evm',
       chainId: this.chainId,
@@ -61,22 +62,33 @@ export class EvmEscrowAdapter implements EscrowAdapter {
       abi: VAULTED_ESCROW_ABI,
       functionName,
       args,
+      ...(value === undefined ? {} : { value }),
     }
   }
 
+  /**
+   * Whichever creation route the sender is entitled to.
+   *
+   * The same escrow either way — the contract derives its id from the pair rather than from who
+   * called — so all that differs is which party is named and which is `msg.sender`.
+   */
   buildCreate(params: CreateEscrowParams): TxRequest {
-    return this.write('createEscrow', [
-      getAddress(params.payer),
+    const shared = [
+      getAddress(params.asset),
       BigInt(params.amount),
       params.protectionPeriod,
       params.fundingDeadline,
       params.detailsHash,
       params.salt,
-    ])
+    ]
+    return params.by === 'payer'
+      ? this.write('createEscrowFor', [getAddress(params.payee), ...shared])
+      : this.write('createEscrow', [getAddress(params.payer), ...shared])
   }
 
-  buildFund(escrowId: string): TxRequest {
-    return this.write('fund', [escrowId])
+  /** `value` is set only for a native escrow, where the amount travels with the call itself. */
+  buildFund(escrowId: string, value?: string): TxRequest {
+    return this.write('fund', [escrowId], value === undefined ? undefined : BigInt(value))
   }
 
   buildRelease(escrowId: string): TxRequest {

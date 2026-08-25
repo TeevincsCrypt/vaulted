@@ -37,7 +37,7 @@ export class SolanaEscrowAdapter implements EscrowAdapter {
     )
   }
 
-  deriveEscrowId(_input: { payee: string; salt: string }): string {
+  deriveEscrowId(_input: { payee: string; payer: string; salt: string }): string {
     // Would be a PDA: findProgramAddress(["escrow", payee, salt], programId). Deriving one now
     // would produce an address that no program owns.
     return this.unavailable('deriveEscrowId')
@@ -47,7 +47,7 @@ export class SolanaEscrowAdapter implements EscrowAdapter {
     return this.unavailable('createEscrow')
   }
 
-  buildFund(_escrowId: string): TxRequest {
+  buildFund(_escrowId: string, _value?: string): TxRequest {
     return this.unavailable('fund')
   }
 

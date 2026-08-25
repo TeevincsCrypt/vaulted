@@ -23,6 +23,7 @@ for (const testCase of vector.cases) {
     chainId: vector.chainId,
     escrowAddress: vector.escrowAddress,
     payee: testCase.payee,
+    payer: testCase.payer,
     salt,
   })
   if (escrowId.toLowerCase() !== testCase.escrowId.toLowerCase()) {
@@ -35,4 +36,15 @@ if (failures > 0) {
   console.error(`\n${failures} of ${vector.cases.length} escrow id vectors disagree with the contract.`)
   process.exit(1)
 }
+/*
+ * The pair, not just the payee. Two cases share a payee and an invoice id and differ only in the
+ * payer; if they came out equal, the payer would not be contributing to the id and a stranger could
+ * occupy an id they had merely seen — see the contract's own computeEscrowId.
+ */
+const byPair = new Set(vector.cases.map((testCase) => testCase.escrowId.toLowerCase()))
+if (byPair.size !== vector.cases.length) {
+  console.error('two vectors share an escrow id — the payer is not part of the derivation')
+  process.exit(1)
+}
+
 console.log(`escrow id derivation matches the contract on all ${vector.cases.length} vectors`)
