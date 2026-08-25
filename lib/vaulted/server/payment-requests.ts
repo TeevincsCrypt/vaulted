@@ -5,6 +5,7 @@ import { getChain, paymentChains, type VaultedChain } from '../registry'
 import { isSolanaAddress, isSolanaSignature } from '../solana'
 import { ApiError } from './auth'
 import { accountByHandle, requireAccount } from './accounts'
+import { notifyPaymentReceived } from './notifications'
 import { serverRpcUrl } from './rpc'
 import { verifyPayment } from './verify-payment'
 
@@ -352,6 +353,27 @@ export async function verifyPaymentRequest(
       paidAmount: check.amount,
       paidAt: new Date(),
     },
+  })
+
+  /*
+    The money is in their wallet as of this line, and until now nothing told them so. Deliberately
+    placed after the update rather than before: the notification reports a payment the chain has
+    already settled and this row has already recorded, so it can never announce one that then turns
+    out not to have happened.
+  */
+  const payer = row.payerAccountId
+    ? await prisma.account.findUnique({ where: { id: row.payerAccountId }, select: { name: true } })
+    : null
+  await notifyPaymentReceived({
+    requestId: row.id,
+    accountId: row.creatorId,
+    description: row.description,
+    // What actually arrived, read back off the chain — not what was asked for.
+    amount: check.amount,
+    tokenSymbol: row.currency,
+    tokenDecimals: chain.token?.decimals ?? 6,
+    networkName: chain.name,
+    payerName: payer?.name ?? null,
   })
 
   return { request: serialise(updated, row.creator.name), verified: true }

@@ -18,10 +18,12 @@ export type NotificationType =
   | 'JOB_DECLINED'
   | 'WORK_SUBMITTED'
   | 'PAYMENT_REQUESTED'
+  | 'PAYMENT_ESCROW_CREATED'
   | 'PAYMENT_FUNDED'
   | 'PAYMENT_RELEASED'
   | 'PAYMENT_DISPUTED'
   | 'PAYMENT_REFUNDED'
+  | 'PAYMENT_RECEIVED'
 
 type Input = {
   accountId: string
@@ -281,6 +283,47 @@ export async function notifyWorkSubmitted(job: { id: string; title: string; clie
 }
 
 /**
+ * Money landed in someone's wallet.
+ *
+ * Direct payments settle by transfer rather than through escrow, so none of the escrow transitions
+ * below ever fire for them — which meant the single most worth knowing about, someone actually
+ * paying you, was the one thing that arrived in silence.
+ *
+ * Called only from the path that sets PAID, and that path sets PAID only after reading the
+ * transaction back off the chain. So this reports a payment that demonstrably happened, never a
+ * claim someone made by submitting a hash.
+ *
+ * The recipient is addressed by account id straight off the request, not resolved from an address,
+ * so this cannot strand the way the address-resolved notifications can.
+ */
+export async function notifyPaymentReceived(input: {
+  requestId: string
+  accountId: string
+  description: string | null
+  amount: string
+  tokenSymbol: string
+  tokenDecimals: number
+  networkName: string
+  payerName: string | null
+}) {
+  try {
+    const amount = `${formatAmount(input.amount, input.tokenDecimals)} ${input.tokenSymbol}`
+    const from = input.payerName ? ` from @${input.payerName}` : ''
+    await create([
+      {
+        accountId: input.accountId,
+        type: 'PAYMENT_RECEIVED',
+        title: 'Payment received',
+        body: `${amount} arrived${from} on ${input.networkName}${input.description ? ` — ${input.description}` : ''}`,
+        href: `/requests`,
+      },
+    ])
+  } catch (error) {
+    console.error('[vaulted/notify payment received]', error)
+  }
+}
+
+/**
  * Escrow state changed on chain.
  *
  * Called from the sync path, which reads the contract — so these are reports of something that
@@ -300,6 +343,17 @@ export async function notifyEscrowTransition(input: {
 }) {
   try {
     const map: Record<string, { type: NotificationType; title: string; forPayee: string; forPayer: string } | undefined> = {
+      /*
+        The escrow exists on chain but holds nothing yet. This is the client's cue to fund it, and
+        the step that used to pass in silence — the freelancer raised the escrow, and the person who
+        had to act next was never told it was waiting for them.
+      */
+      AWAITING_PAYMENT: {
+        type: 'PAYMENT_ESCROW_CREATED',
+        title: 'Escrow ready to fund',
+        forPayee: 'is now on chain, waiting for the client to fund it',
+        forPayer: 'is on chain and waiting for you to fund it',
+      },
       IN_ESCROW: {
         type: 'PAYMENT_FUNDED',
         title: 'Escrow funded',

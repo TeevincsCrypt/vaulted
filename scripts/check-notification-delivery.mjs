@@ -28,6 +28,7 @@ import {
   workSubmissionMessage,
 } from '../lib/vaulted/messages.ts'
 import { acceptApplicant, applyToJob, createJob, submitWork } from '../lib/vaulted/server/jobs.ts'
+import { notifyEscrowTransition, notifyPaymentReceived } from '../lib/vaulted/server/notifications.ts'
 import { defaultChain, VAULTED_CHAINS } from '../lib/vaulted/registry.ts'
 
 const ROOT = path.join(import.meta.dirname, '..')
@@ -190,6 +191,90 @@ step(2, 'The client has no recorded wallet — the notifications about them go m
     !seen.worker.includes('JOB_APPLICATION') && !seen.worker.includes('WORK_SUBMITTED'),
     'an undeliverable notification is dropped, never redirected to the other party',
   )
+}
+
+step(3, 'The two moments that used to pass in silence: escrow on chain, and money arriving')
+{
+  await prisma.notification.deleteMany({})
+  await prisma.jobApplication.deleteMany({})
+  await prisma.job.deleteMany({})
+  await prisma.linkedWallet.deleteMany({})
+  await prisma.account.deleteMany({})
+
+  const client = await prisma.account.create({
+    data: { name: 'checkclient', twitterId: 'check-t-client', privyUserId: 'check-p-client' },
+  })
+  const worker = await prisma.account.create({
+    data: { name: 'checkworker', twitterId: 'check-t-worker', privyUserId: 'check-p-worker' },
+  })
+  for (const [account, wallet] of [[client, CLIENT], [worker, WORKER]]) {
+    await prisma.linkedWallet.create({
+      data: {
+        usernameId: account.id,
+        chainKey: walletChainKey,
+        address: getAddress(wallet.address),
+        provenance: 'PRIVY_EMBEDDED',
+      },
+    })
+  }
+
+  /*
+    The escrow reaching the chain. The contract makes the freelancer raise it, so it is the client
+    who has to act next — and this transition had no entry in the map at all, so neither side was
+    told anything. Driven through the real transition function, because what is being checked is
+    precisely that this status is now mapped.
+  */
+  await notifyEscrowTransition({
+    invoiceId: 'v_notifycheck00000001',
+    description: 'A landing page',
+    amount: '1000000',
+    tokenSymbol: 'USDC',
+    tokenDecimals: 6,
+    payeeAddress: getAddress(WORKER.address),
+    payerAddress: getAddress(CLIENT.address),
+    from: 'AWAITING_CHAIN',
+    to: 'AWAITING_PAYMENT',
+  })
+
+  const created = await prisma.notification.findMany({ where: { type: 'PAYMENT_ESCROW_CREATED' } })
+  check(created.length === 2, `an escrow reaching the chain notifies both sides (${created.length})`)
+  check(
+    created.some((row) => row.accountId === client.id && /fund it/i.test(row.body)),
+    'the client is told it is waiting on them to fund',
+  )
+  check(created.some((row) => row.accountId === worker.id), 'and the freelancer is told it is on chain')
+
+  // A status that did not actually change must still produce nothing.
+  await prisma.notification.deleteMany({})
+  await notifyEscrowTransition({
+    invoiceId: 'v_notifycheck00000001', description: 'A landing page', amount: '1000000',
+    tokenSymbol: 'USDC', tokenDecimals: 6,
+    payeeAddress: getAddress(WORKER.address), payerAddress: getAddress(CLIENT.address),
+    from: 'AWAITING_PAYMENT', to: 'AWAITING_PAYMENT',
+  })
+  check((await prisma.notification.count()) === 0, 'a status that did not change notifies nobody')
+
+  /*
+    Money arriving. Direct payments settle by transfer and never touch an escrow transition, so
+    nothing above ever fires for them — which left the event most worth knowing about as the one
+    that arrived in silence.
+  */
+  await notifyPaymentReceived({
+    requestId: 'pr_notifycheck00000001',
+    accountId: worker.id,
+    description: 'A landing page',
+    amount: '2500000',
+    tokenSymbol: 'USDC',
+    tokenDecimals: 6,
+    networkName: 'Base',
+    payerName: 'checkclient',
+  })
+
+  const received = await prisma.notification.findMany({ where: { type: 'PAYMENT_RECEIVED' } })
+  check(received.length === 1, `money arriving notifies the recipient (${received.length})`)
+  check(received[0]?.accountId === worker.id, 'and only the recipient')
+  check(/2\.5/.test(received[0]?.body ?? ''), `naming what arrived (${received[0]?.body ?? 'none'})`)
+  check(/@checkclient/.test(received[0]?.body ?? ''), 'and who it came from')
 }
 
 await prisma.notification.deleteMany({})

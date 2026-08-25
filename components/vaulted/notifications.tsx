@@ -2,7 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Bell, Briefcase, CheckCheck, FileCheck2, Loader2, RefreshCw, Send, UserPlus, Wallet } from 'lucide-react'
+import {
+  ArrowDownToLine,
+  Bell,
+  Briefcase,
+  CheckCheck,
+  FileCheck2,
+  Loader2,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  UserPlus,
+  Wallet,
+} from 'lucide-react'
 import { useSession } from './session-provider'
 
 type Item = {
@@ -22,10 +34,12 @@ const ICON: Record<string, typeof Bell> = {
   JOB_DECLINED: Bell,
   WORK_SUBMITTED: FileCheck2,
   PAYMENT_REQUESTED: Send,
+  PAYMENT_ESCROW_CREATED: ShieldCheck,
   PAYMENT_FUNDED: Wallet,
   PAYMENT_RELEASED: CheckCheck,
   PAYMENT_DISPUTED: Bell,
   PAYMENT_REFUNDED: Wallet,
+  PAYMENT_RECEIVED: ArrowDownToLine,
 }
 
 /** Notification bell. Polls while signed in; there is no websocket, and none is claimed. */

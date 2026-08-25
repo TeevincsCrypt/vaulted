@@ -55,9 +55,34 @@ export function PostedJobs() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/jobs/posted${address ? `?address=${address}` : ''}`, { cache: 'no-store' })
-      const body = await response.json()
-      setJobs(body.jobs ?? [])
+      const fetchJobs = async () => {
+        const response = await fetch(`/api/jobs/posted${address ? `?address=${address}` : ''}`, { cache: 'no-store' })
+        const body = await response.json()
+        return (body.jobs ?? []) as PostedJob[]
+      }
+
+      const rows = await fetchJobs()
+      setJobs(rows)
+
+      /*
+        Re-read each escrow from the contract, the way the freelancer's own list already does.
+
+        Not only for a fresher status. Syncing is what records a state change and notifies both
+        sides of it, and the client had no path that ever ran one — so an escrow raised for their
+        job went on chain, sat there waiting to be funded, and said nothing to the one person who
+        had to act next.
+
+        Rendered first and refreshed after, so the page is never blank while this happens.
+      */
+      const withEscrow = rows.filter((job) => job.invoiceId)
+      if (withEscrow.length > 0) {
+        await Promise.all(
+          withEscrow.map((job) =>
+            fetch(`/api/invoices/${job.invoiceId}/sync`, { method: 'POST' }).catch(() => null),
+          ),
+        )
+        setJobs(await fetchJobs())
+      }
     } finally {
       setLoading(false)
     }
