@@ -1,5 +1,5 @@
 /**
- * Deploys VaultedEscrow and records everything needed to talk to it: address, chain id, token,
+ * Deploys the escrow contract and records everything needed to talk to it: address, chain id, token,
  * deployment transaction, block, constructor arguments, compiler settings and ABI.
  *
  * Usage:
@@ -14,6 +14,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const hre = require('hardhat')
 const { KNOWN_TOKENS } = require('./tokens')
+const { CONTRACT_NAME } = require('./contract')
 
 const ERC20_METADATA_ABI = [
   'function symbol() view returns (string)',
@@ -89,7 +90,7 @@ async function main() {
       : `arbiter        ${arbiter}  (TRUSTED role, see the contract's trust model)`,
   )
 
-  const factory = await ethers.getContractFactory('VaultedEscrow')
+  const factory = await ethers.getContractFactory(CONTRACT_NAME)
   const escrow = await factory.deploy(token.address, arbiter)
   const deploymentTx = escrow.deploymentTransaction()
   console.log(`\ndeploy tx      ${deploymentTx.hash}\nwaiting for confirmations...`)
@@ -110,9 +111,9 @@ async function main() {
     throw new Error(`Deployed contract reports token ${onChainToken}, expected ${token.address}`)
   }
 
-  const artifact = await hre.artifacts.readArtifact('VaultedEscrow')
+  const artifact = await hre.artifacts.readArtifact(CONTRACT_NAME)
   const record = {
-    contractName: 'VaultedEscrow',
+    contractName: CONTRACT_NAME,
     network: network.name,
     chainId,
     address,

@@ -1,5 +1,5 @@
 /**
- * Everything that must be true before VaultedEscrow is deployed with real money behind it.
+ * Everything that must be true before the escrow contract is deployed with real money behind it.
  *
  * Read-only. This sends no transaction and spends no gas; it exists so that the deploy itself is
  * the boring part. Run it, read it, then deploy.
@@ -12,6 +12,7 @@
  */
 const hre = require('hardhat')
 const { KNOWN_TOKENS } = require('./tokens')
+const { CONTRACT_NAME } = require('./contract')
 
 const ERC20_ABI = [
   'function symbol() view returns (string)',
@@ -144,7 +145,7 @@ async function main() {
 
   section('Bytecode')
   await hre.run('compile')
-  const artifact = await hre.artifacts.readArtifact('VaultedEscrow')
+  const artifact = await hre.artifacts.readArtifact(CONTRACT_NAME)
   const creation = artifact.bytecode
   check('the contract compiles', creation.length > 2, `${(creation.length - 2) / 2} bytes of creation code`)
   check(
@@ -156,7 +157,7 @@ async function main() {
   console.log(`  compiler               ${hre.config.solidity.compilers[0].version}, optimizer runs ${hre.config.solidity.compilers[0].settings.optimizer.runs}, evm ${hre.config.solidity.compilers[0].settings.evmVersion}`)
 
   section('The transaction that would be sent')
-  const factory = await ethers.getContractFactory('VaultedEscrow')
+  const factory = await ethers.getContractFactory(CONTRACT_NAME)
   const deployTx = await factory.getDeployTransaction(tokenAddress, arbiter)
   const gas = await ethers.provider.estimateGas({ ...deployTx, from: deployer.address }).catch((error) => {
     console.log(`  gas estimate failed: ${error.shortMessage ?? error.message}`)
