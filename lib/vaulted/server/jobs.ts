@@ -6,8 +6,9 @@ import {
   jobCreationMessage,
   workSubmissionMessage,
 } from '../messages'
-import { getChain } from '../registry'
+import { getChain, normaliseAssetId } from '../registry'
 import { accountForAddress, requireOwnedSigner } from './accounts'
+import { ZERO_ADDRESS } from '../config'
 import { ApiError, requireTransactableChain } from './auth'
 import { createJobPaymentRequest } from './payment-requests'
 import {
@@ -55,6 +56,8 @@ export async function createJob(input: {
   description: string
   budgetAmount: string
   chainKey: string
+  /** Zero address for the chain's own currency; otherwise its token. Defaults to the token. */
+  budgetAsset?: string | null
   deadline?: number | null
   protectionPeriod: number
   clientAddress: string
@@ -70,6 +73,27 @@ export async function createJob(input: {
   */
   const chain = requireTransactableChain(input.chainKey)
   if (!chain.token) throw new ApiError(`${chain.name} has no token recorded, so a budget cannot be denominated.`, 409)
+
+  /*
+    What the budget is in. Only two are possible on a chain, both fixed in its escrow deployment,
+    so anything else is refused here rather than reaching a call that would revert.
+
+    A native budget needs an escrow that can hold it. Where no escrow exists the budget is settled
+    by a direct transfer instead, and that path is denominated in the token — so offering ether
+    there would post a budget nothing could actually pay.
+  */
+  const budgetAsset = normaliseAssetId(input.budgetAsset || chain.token.address)
+  const nativeBudget = budgetAsset === ZERO_ADDRESS
+  if (!nativeBudget && budgetAsset.toLowerCase() !== chain.token.address.toLowerCase()) {
+    throw new ApiError(`A budget on ${chain.name} cannot be denominated in that asset.`, 400)
+  }
+  if (nativeBudget && !chain.capabilities.escrow) {
+    throw new ApiError(
+      `${chain.name} has no escrow in this deployment, so a budget there settles by direct ` +
+        `transfer and must be denominated in ${chain.token.symbol}.`,
+      409,
+    )
+  }
 
   const title = input.title.trim()
   const description = input.description.trim()
@@ -98,6 +122,7 @@ export async function createJob(input: {
       title,
       budgetAmount: budget.toString(),
       chainKey: chain.key,
+      budgetAsset,
       client: input.clientAddress,
       issuedAt: input.issuedAt,
     }),
@@ -118,8 +143,10 @@ export async function createJob(input: {
       description,
       budgetAmount: budget.toString(),
       chainKey: chain.key,
-      tokenSymbol: chain.token.symbol,
-      tokenDecimals: chain.token.decimals,
+      budgetAsset,
+      // Whichever asset the budget is in, described in its own units.
+      tokenSymbol: nativeBudget ? (chain.viemChain?.nativeCurrency.symbol ?? 'ETH') : chain.token.symbol,
+      tokenDecimals: nativeBudget ? (chain.viemChain?.nativeCurrency.decimals ?? 18) : chain.token.decimals,
       deadline: input.deadline ? new Date(input.deadline * 1000) : null,
       protectionPeriod,
       clientAddress: client,
@@ -350,6 +377,7 @@ export function serialiseJob(job: JobWithExtras) {
     title: job.title,
     description: job.description,
     budgetAmount: job.budgetAmount,
+    budgetAsset: job.budgetAsset,
     chainKey: job.chainKey,
     token: { symbol: job.tokenSymbol, decimals: job.tokenDecimals },
     deadline: job.deadline ? Math.floor(job.deadline.getTime() / 1000) : null,

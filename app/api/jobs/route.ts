@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
       description: String(body.description ?? ''),
       budgetAmount: String(body.budgetAmount ?? ''),
       chainKey: String(body.chainKey ?? ''),
+      budgetAsset: body.budgetAsset ? String(body.budgetAsset) : null,
       deadline: body.deadline ? Number(body.deadline) : null,
       protectionPeriod: Number(body.protectionPeriod ?? 0),
       clientAddress: String(body.clientAddress ?? ''),

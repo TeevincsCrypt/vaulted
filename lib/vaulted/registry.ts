@@ -1,4 +1,4 @@
-import type { Chain } from 'viem'
+import { getAddress, isAddress, type Chain } from 'viem'
 import { base, baseSepolia, hardhat } from 'viem/chains'
 import { VAULTED_DEPLOYMENTS } from './generated/deployments'
 
@@ -352,4 +352,18 @@ export function availabilityLabel(chain: VaultedChain): string {
     return chain.network === 'testnet' ? 'Payments · Testnet' : 'Payments only'
   }
   return 'Coming soon'
+}
+
+/**
+ * One asset identifier, normalised the same way everywhere.
+ *
+ * Assets are identified differently per family — an EVM address is checksummed hex, a Solana mint
+ * is base58 — and both end up in the same signed message and the same database column. Checksumming
+ * unconditionally throws on a mint; not checksumming at all lets the same EVM address in two cases
+ * produce two different signed messages, and a signature that does not verify.
+ *
+ * So: checksum what is an EVM address, leave anything else exactly as given.
+ */
+export function normaliseAssetId(asset: string): string {
+  return isAddress(asset) ? getAddress(asset) : asset
 }

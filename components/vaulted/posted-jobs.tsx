@@ -218,11 +218,28 @@ function PostedJobCard({ job, onChanged }: { job: PostedJob; onChanged: () => vo
 
           <div className="mt-4">
             {!job.invoiceId ? (
-              <Notice tone="warn" icon={<AlertTriangle size={15} />}>
-                No escrow exists for this job, so the budget is not secured. The contract makes the
-                person being paid its creator, so the freelancer raises it — they have been notified
-                — and you fund it here as soon as they do.
-              </Notice>
+              /*
+                The client's own route to securing the budget.
+
+                Under the v1 contract the escrow's creator was always its payee, so this could only
+                wait on the freelancer — and a freelancer with an empty wallet could not create it
+                at all, which left the budget unsecured with nothing either side could do. v2 lets
+                the client create it naming them, so the action belongs here, to the person who was
+                going to pay for it anyway.
+              */
+              <div className="flex flex-col gap-3">
+                <Notice tone="warn" icon={<AlertTriangle size={15} />} title="Budget not secured yet">
+                  No escrow exists for this job. Create and fund it here — the freelancer pays
+                  nothing and needs no balance of their own.
+                </Notice>
+                <Link
+                  href={`/request?job=${job.jobId}`}
+                  className="inline-flex h-12 w-fit items-center gap-2 rounded-xl px-6 text-[15px] font-semibold text-[#08080a] transition-transform hover:-translate-y-0.5"
+                  style={{ background: 'var(--vt-accent)' }}
+                >
+                  Secure {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
+                </Link>
+              </div>
             ) : !job.escrow?.live ? (
               <Notice tone="warn" icon={<AlertTriangle size={15} />}>
                 {job.escrow?.reason ?? 'The chain could not be read just now.'}

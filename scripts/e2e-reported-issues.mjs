@@ -23,6 +23,7 @@ import { createRequire } from 'node:module'
 import { privateKeyToAccount } from 'viem/accounts'
 import { PrismaClient } from '@prisma/client'
 import { jobAcceptMessage, jobApplicationMessage, jobCreationMessage } from '../lib/vaulted/messages.ts'
+import { getChain } from '../lib/vaulted/registry.ts'
 
 const require = createRequire('/opt/node22/lib/node_modules/playwright/')
 const { chromium } = require('/opt/node22/lib/node_modules/playwright')
@@ -170,12 +171,14 @@ try {
   step(1, 'applying to a job notifies whoever posted it, and the bell shows it')
 
   let issuedAt = now()
+  const SOLANA_USDC = getChain('solana').token.address
   let signature = await CLIENT.signMessage({ message: jobCreationMessage({
     jobId: JOB_ID, title: 'Solana landing page', budgetAmount: '1000000',
-    chainKey: 'solana', client: CLIENT.address, issuedAt }) })
+    chainKey: 'solana', budgetAsset: SOLANA_USDC, client: CLIENT.address, issuedAt }) })
   let response = await api('/api/jobs', { cookie: clientCookie, method: 'POST', body: {
     jobId: JOB_ID, title: 'Solana landing page', description: 'A page, paid in Solana USDC.',
-    budgetAmount: '1000000', chainKey: 'solana', deadline: null, protectionPeriod: 86400,
+    budgetAmount: '1000000', chainKey: 'solana', budgetAsset: SOLANA_USDC,
+    deadline: null, protectionPeriod: 86400,
     clientAddress: CLIENT.address, issuedAt, signature } })
   check(response.ok, `the job posts on Solana (${response.status})`)
 
@@ -194,7 +197,7 @@ try {
   const strangerIssuedAt = now()
   const strangerJob = {
     jobId: STRANGER_JOB_ID, title: 'Signed by an extension', budgetAmount: '1000000',
-    chainKey: 'solana', client: stranger.address, issuedAt: strangerIssuedAt,
+    chainKey: 'solana', budgetAsset: SOLANA_USDC, client: stranger.address, issuedAt: strangerIssuedAt,
   }
   const strangerResponse = await api('/api/jobs', { cookie: clientCookie, method: 'POST', body: {
     ...strangerJob, description: 'Posted while an extension held the wallet slot.',

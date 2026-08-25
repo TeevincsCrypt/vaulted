@@ -190,7 +190,20 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const decimals = chain?.token?.decimals ?? 6
+  /*
+    What the budget is denominated in. Only offered where the chain has an escrow that can hold
+    both: without one the budget settles by direct transfer, and that path is the token's, so an
+    ether budget there would be one nothing could pay.
+  */
+  const [budgetAsset, setBudgetAsset] = useState<'token' | 'native'>('token')
+  const canChooseAsset = Boolean(chain?.capabilities.escrow && chain?.viemChain)
+  const nativeBudget = canChooseAsset && budgetAsset === 'native'
+  const budgetSymbol = nativeBudget ? (chain?.viemChain?.nativeCurrency.symbol ?? 'ETH') : (chain?.token?.symbol ?? 'USDC')
+  const budgetAssetAddress = nativeBudget
+    ? '0x0000000000000000000000000000000000000000'
+    : (chain?.token?.address ?? '0x0000000000000000000000000000000000000000')
+
+  const decimals = nativeBudget ? (chain?.viemChain?.nativeCurrency.decimals ?? 18) : (chain?.token?.decimals ?? 6)
   const amount = parseAmount(budget, decimals)
 
   async function submit() {
@@ -206,6 +219,7 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
           title: title.trim(),
           budgetAmount: amount.toString(),
           chainKey: chain.key,
+          budgetAsset: budgetAssetAddress,
           client: address,
           issuedAt,
         }),
@@ -220,6 +234,7 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
           description: description.trim(),
           budgetAmount: amount.toString(),
           chainKey: chain.key,
+          budgetAsset: budgetAssetAddress,
           deadline: deadlineDays ? nowSeconds() + Number(deadlineDays) * 86400 : null,
           protectionPeriod,
           clientAddress: address,
@@ -269,13 +284,42 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
             against the network before Vaulted calls it paid, but there is nothing to claw back.
           </Notice>
         )}
+        {canChooseAsset && (
+          <Field label="Budget in" hint="What the escrow will hold until the work is done.">
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: 'token' as const, label: chain.token?.symbol ?? 'USDC' },
+                { key: 'native' as const, label: chain.viemChain?.nativeCurrency.symbol ?? 'ETH' },
+              ]).map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setBudgetAsset(option.key)
+                    // Typed against the other asset's decimals — the same digits mean a different
+                    // amount here.
+                    setBudget('')
+                  }}
+                  className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
+                    budgetAsset === option.key
+                      ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
+                      : 'border-border hover:bg-muted'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
         <Field label="Title">
           <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="Build Landing Page" className={inputClass} disabled={busy} />
         </Field>
         <Field label="Description">
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} rows={4} placeholder="What needs building, and what done looks like." className={inputClass} disabled={busy} />
         </Field>
-        <Field label={`Budget (${chain.token?.symbol ?? 'token'})`} error={budget && !amount ? 'Enter an amount greater than zero.' : null}>
+        <Field label={`Budget (${budgetSymbol})`} error={budget && !amount ? 'Enter an amount greater than zero.' : null}>
           <input value={budget} onChange={(e) => setBudget(e.target.value)} inputMode="decimal" placeholder="500.00" className={`${inputClass} vt-numeric`} disabled={busy} />
         </Field>
         {/*

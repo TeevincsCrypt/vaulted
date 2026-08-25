@@ -187,9 +187,12 @@ model Job {
   title       String
   description String
 
-  /// Budget in base units of the chain's escrow token — never a float.
+  /// Budget in base units of whichever asset it is denominated in — never a float.
   budgetAmount  String
   chainKey      String
+  /// What the budget is in: the zero address for the chain's own currency, otherwise its token.
+  /// tokenSymbol and tokenDecimals describe whichever it is.
+  budgetAsset   String @default("0x0000000000000000000000000000000000000000")
   tokenSymbol   String
   tokenDecimals Int
 

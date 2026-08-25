@@ -1,4 +1,5 @@
 import { getAddress } from 'viem'
+import { normaliseAssetId } from './registry'
 
 /**
  * Canonical messages users sign to authenticate off-chain actions.
@@ -24,6 +25,12 @@ export function jobCreationMessage(input: {
   title: string
   budgetAmount: string
   chainKey: string
+  /**
+   * What the budget is denominated in — the zero address for the chain's own currency, otherwise
+   * its token. Part of the signed terms rather than a detail settled afterwards: without it a
+   * signature over "1000000" says nothing about whether that is a dollar or a fortune.
+   */
+  budgetAsset: string
   client: string
   issuedAt: number
 }): string {
@@ -33,6 +40,7 @@ export function jobCreationMessage(input: {
     `Job: ${input.jobId}`,
     `Title: ${input.title}`,
     `Budget: ${input.budgetAmount} (base units)`,
+    `Asset: ${normaliseAssetId(input.budgetAsset)}`,
     `Chain: ${input.chainKey}`,
     `Client: ${getAddress(input.client)}`,
     `Issued: ${new Date(input.issuedAt * 1000).toISOString()}`,

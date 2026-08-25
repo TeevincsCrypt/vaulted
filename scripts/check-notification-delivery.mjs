@@ -121,6 +121,7 @@ async function runFlow({ jobId, linkClientWallet }) {
         title,
         budgetAmount,
         chainKey: chain.key,
+        budgetAsset: chain.token.address,
         client: CLIENT.address,
         issuedAt: postedAt,
       }),

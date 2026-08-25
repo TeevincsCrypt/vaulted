@@ -18,7 +18,14 @@ import { useSession } from './session-provider'
 export function RequestPaymentPage({ jobId }: { jobId?: string }) {
   const config = useVaultedConfig()
   const { account } = useSession()
-  const [job, setJob] = useState<{ jobId: string; amount: string; description: string; client: string } | null>(null)
+  const [job, setJob] = useState<{
+    jobId: string
+    amount: string
+    asset: `0x${string}`
+    description: string
+    client: string
+    payee: string
+  } | null>(null)
   const [jobError, setJobError] = useState<string | null>(null)
   /*
     A job on a network with no escrow contract cannot be secured here, and this page used to say
@@ -43,15 +50,19 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
         setDirectPayment({ id: body.payment?.id ?? null })
         return
       }
-      if (body.job.status !== 'ASSIGNED') {
+      if (body.job.status !== 'ASSIGNED' || !body.job.assignedTo) {
         setJobError('That job has not been assigned, so there is nothing to secure yet.')
         return
       }
       setJob({
         jobId: body.job.jobId,
         amount: body.job.budgetAmount,
+        asset: body.job.budgetAsset,
         description: body.job.title,
         client: body.job.clientAddress,
+        // Both sides are needed now: whichever of them is looking at this page is the one who can
+        // act, and the escrow names them both regardless.
+        payee: body.job.assignedTo,
       })
     })()
     return () => {

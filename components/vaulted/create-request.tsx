@@ -11,6 +11,7 @@ import { ZERO_ADDRESS } from '@/lib/vaulted/config'
 import { getChainByEvmId } from '@/lib/vaulted/registry'
 import { readableError, useTransaction } from '@/lib/vaulted/client'
 import {
+  computeEscrowId,
   detailsHash as computeDetailsHash,
   escrowSalt,
   generateInvoiceId,
@@ -22,7 +23,12 @@ import { Button, Card, CopyButton, Divider, Eyebrow, Field, Notice, inputClass }
 import { TransactionStatus } from './transaction-status'
 import { NetworkGuard, SignInButton } from './wallet'
 
-type Stage = 'form' | 'signing' | 'publishing' | 'chain' | 'done'
+type Stage = 'form' | 'signing' | 'publishing' | 'chain' | 'funding' | 'done'
+
+/** Decimals for whichever asset an escrow holds — the token's, or the chain's own. */
+function assetDecimalsFor(asset: `0x${string}`, config: VaultedConfig): number {
+  return asset === ZERO_ADDRESS ? config.chain.nativeCurrency.decimals : config.token.decimals
+}
 
 /**
  * Freelancer flow: describe the work, sign the terms, put the escrow on chain, share the link.
@@ -44,7 +50,14 @@ export function CreateRequest({
    * come from the job that was agreed, so they are locked — editing them here would mean the escrow
    * no longer matches the job it claims to secure.
    */
-  prefill?: { jobId: string; amount: string; description: string; client: string }
+  prefill?: {
+    jobId: string
+    amount: string
+    asset: `0x${string}`
+    description: string
+    client: string
+    payee: string
+  }
 }) {
   const { address, isConnected } = useAccount()
   const { signMessageAsync } = useSignMessage()
@@ -59,17 +72,33 @@ export function CreateRequest({
     so this is a choice between exactly two things — not a token picker.
   */
   const [asset, setAsset] = useState<'token' | 'native'>('token')
-  const native = asset === 'native'
-  const assetAddress = (native ? ZERO_ADDRESS : config.token.address) as `0x${string}`
+  /*
+    A job's escrow is denominated by the job, not by this form. Choosing here would mean securing a
+    budget in something other than what was agreed and posted.
+  */
+  const assetAddress = (prefill ? prefill.asset : asset === 'native' ? ZERO_ADDRESS : config.token.address) as `0x${string}`
+  const native = assetAddress === ZERO_ADDRESS
   const assetSymbol = native ? config.chain.nativeCurrency.symbol : config.token.symbol
   const assetDecimals = native ? config.chain.nativeCurrency.decimals : config.token.decimals
+
+  /*
+    Which side of this escrow is looking at the page.
+
+    'payer' is the whole point of the v2 contract: the client creates the escrow naming the
+    freelancer and funds it in the same flow, so the freelancer signs nothing on chain and needs no
+    balance at all. 'payee' is a freelancer raising a request of their own, which still works and
+    still costs them the gas for it.
+  */
+  const role: 'payer' | 'payee' =
+    prefill && address && prefill.client.toLowerCase() === address.toLowerCase() ? 'payer' : 'payee'
+  const asClient = role === 'payer'
 
   const [clientAddress, setClientAddress] = useState(prefill?.client ?? '')
   // A handle typed into the client field is resolved to the wallet linked to that account.
   const [resolving, setResolving] = useState(false)
   const [resolved, setResolved] = useState<{ handle: string; address: string | null } | null>(null)
   const [amountInput, setAmountInput] = useState(
-    prefill ? formatAmountExact(prefill.amount, config.token.decimals) : '',
+    prefill ? formatAmountExact(prefill.amount, assetDecimalsFor(prefill.asset, config)) : '',
   )
   const [description, setDescription] = useState(prefill?.description ?? '')
   const [protectionPeriod, setProtectionPeriod] = useState(config.defaultProtectionPeriod)
@@ -120,14 +149,24 @@ export function CreateRequest({
   }, [raw, looksLikeHandle, chainKey])
   const sameWallet = Boolean(address) && effectiveClient?.toLowerCase() === address?.toLowerCase()
 
-  const canSubmit =
-    isConnected && Boolean(address) && Boolean(amount) && description.trim().length > 0 && clientValid && !sameWallet
+  // The two sides of the escrow, whichever of them is sitting at this form.
+  const payee = (asClient ? prefill!.payee : address) as `0x${string}` | undefined
+  const payer = (asClient ? address : effectiveClient) as `0x${string}` | undefined
 
-  const busy = stage === 'signing' || stage === 'publishing' || stage === 'chain'
+  const canSubmit =
+    isConnected &&
+    Boolean(address) &&
+    Boolean(amount) &&
+    description.trim().length > 0 &&
+    Boolean(payee) &&
+    Boolean(payer) &&
+    (asClient || (clientValid && !sameWallet))
+
+  const busy = stage === 'signing' || stage === 'publishing' || stage === 'chain' || stage === 'funding'
   const shareUrl = invoiceId && typeof window !== 'undefined' ? `${window.location.origin}/pay/${invoiceId}` : null
 
   async function submit() {
-    if (!address || !amount) return
+    if (!address || !amount || !payee || !payer) return
     setError(null)
 
     const id = invoiceId ?? generateInvoiceId()
@@ -143,8 +182,8 @@ export function CreateRequest({
       escrowAddress: config.escrowAddress,
       tokenAddress: config.token.address,
       asset: assetAddress,
-      payee: address,
-      payer: effectiveClient as `0x${string}`,
+      payee,
+      payer,
       amount: amount.toString(),
       description: description.trim(),
       protectionPeriod,
@@ -162,10 +201,10 @@ export function CreateRequest({
         body: JSON.stringify({
           invoiceId: id,
           chainId: config.chainId,
-          payee: address,
-          payer: effectiveClient,
+          payee,
+          payer,
           asset: assetAddress,
-          signedBy: 'payee',
+          signedBy: role,
           amount: amount.toString(),
           description: description.trim(),
           protectionPeriod,
@@ -179,19 +218,26 @@ export function CreateRequest({
         throw new Error(body.error ?? 'Could not publish the payment request.')
       }
 
+      /*
+        The client names the freelancer; the freelancer names the client. Same escrow either way —
+        the contract derives its id from the pair — so all that differs is who is msg.sender, and
+        therefore who pays for it.
+      */
       setStage('chain')
+      const commitment = computeDetailsHash(terms)
+      const salt = escrowSalt(id)
       const hash = await tx.send({
         address: config.escrowAddress,
         abi: VAULTED_ESCROW_ABI,
-        functionName: 'createEscrow',
+        functionName: asClient ? 'createEscrowFor' : 'createEscrow',
         args: [
-          terms.payer,
+          asClient ? payee : payer,
           assetAddress,
           amount,
           protectionPeriod,
           fundingDeadline,
-          computeDetailsHash(terms),
-          escrowSalt(id),
+          commitment,
+          salt,
         ],
         chainId: config.chainId,
       })
@@ -205,6 +251,42 @@ export function CreateRequest({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ field: 'createTxHash', hash }),
       })
+
+      /*
+        Funding, immediately, while the client is still here.
+
+        Splitting it across two visits is what left budgets unsecured: an escrow that exists but
+        holds nothing protects nobody, and the freelancer starts work on the strength of it. The
+        client is the payer either way, so there is nobody else to wait for.
+
+        A token escrow needs an allowance first, so that path stays on the payment page where the
+        approve step already lives. Native has no allowance, so it is done here in one go.
+      */
+      if (asClient && native) {
+        setStage('funding')
+        const escrowId = computeEscrowId({
+          chainId: config.chainId,
+          escrowAddress: config.escrowAddress,
+          payee,
+          payer,
+          salt,
+        })
+        const fundHash = await tx.send({
+          address: config.escrowAddress,
+          abi: VAULTED_ESCROW_ABI,
+          functionName: 'fund',
+          args: [escrowId],
+          chainId: config.chainId,
+          value: amount,
+        })
+        if (fundHash) {
+          await fetch(`/api/invoices/${id}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ field: 'fundTxHash', hash: fundHash }),
+          })
+        }
+      }
 
       setStage('done')
       onCreated?.()
@@ -276,9 +358,11 @@ export function CreateRequest({
         {prefill ? 'Secure the agreed budget' : 'Get paid, with escrow protection'}
       </h2>
       <p className="mt-1.5 text-sm text-muted-foreground">
-        {prefill
-          ? 'The amount, client and description come from the job you were hired for and cannot be changed here.'
-          : 'Your client funds a contract, not your wallet. You are paid automatically once the protection window closes.'}
+        {asClient
+          ? 'The terms come from the job you posted. You create the escrow and fund it — the freelancer pays nothing and needs no balance at all.'
+          : prefill
+            ? 'The amount, client and description come from the job you were hired for and cannot be changed here.'
+            : 'Your client funds a contract, not your wallet. You are paid automatically once the protection window closes.'}
       </p>
 
       <div className="mt-6 flex flex-col gap-4">
@@ -340,6 +424,16 @@ export function CreateRequest({
           />
         </Field>
 
+        {asClient ? (
+          <Field label="Freelancer" hint="Assigned to this job. The escrow pays this wallet.">
+            <input
+              value={prefill!.payee}
+              readOnly
+              spellCheck={false}
+              className={`${inputClass} font-mono text-[13px] opacity-70`}
+            />
+          </Field>
+        ) : (
         <Field
           label="Client"
           error={
@@ -370,6 +464,7 @@ export function CreateRequest({
             disabled={busy || Boolean(prefill)}
           />
         </Field>
+        )}
 
         <Field label="Protection window" hint="Counted from the moment the client funds the escrow.">
           <div className="flex flex-wrap gap-2">
@@ -414,6 +509,7 @@ export function CreateRequest({
           </Notice>
         )}
         {stage === 'publishing' && <Notice>Publishing the payment request…</Notice>}
+        {stage === 'funding' && <Notice>Escrow created. Approve the deposit to secure the budget…</Notice>}
 
         <TransactionStatus
           phase={tx.phase}
@@ -429,15 +525,24 @@ export function CreateRequest({
         ) : (
           <NetworkGuard>
             <Button size="lg" full disabled={!canSubmit} busy={busy} onClick={submit}>
-              {amount ? `Create request for ${formatAmount(amount, assetDecimals)} ${assetSymbol}` : 'Create payment request'}
+              {!amount
+                ? asClient
+                  ? 'Secure the budget'
+                  : 'Create payment request'
+                : asClient
+                  ? `Secure ${formatAmount(amount, assetDecimals)} ${assetSymbol} in escrow`
+                  : `Create request for ${formatAmount(amount, assetDecimals)} ${assetSymbol}`}
             </Button>
           </NetworkGuard>
         )}
 
         <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
           <ShieldCheck size={14} className="mt-0.5 shrink-0" />
-          Two steps: a signature that publishes the link, then one transaction that creates the escrow
-          on {config.chain.name}. You pay gas only for the second.
+          {asClient
+            ? native
+              ? `A signature, then two transactions on ${config.chain.name}: one to create the escrow, one to fund it. The freelancer sends nothing and pays nothing.`
+              : `A signature, then a transaction on ${config.chain.name} that creates the escrow. You fund it on the next screen, where ${config.token.symbol} needs an approval first. The freelancer sends nothing and pays nothing.`
+            : `Two steps: a signature that publishes the link, then one transaction that creates the escrow on ${config.chain.name}. You pay gas only for the second.`}
         </p>
       </div>
     </Card>
