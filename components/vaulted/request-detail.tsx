@@ -3,10 +3,12 @@
 import Link from 'next/link'
 import { ArrowLeft, Clock, Link2, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useAccount } from 'wagmi'
 import type { VaultedConfig } from '@/lib/vaulted/config'
 import { ZERO_ADDRESS } from '@/lib/vaulted/config'
-import { useChainCountdown, useEscrow } from '@/lib/vaulted/client'
+import { useChainCountdown, useEscrow, useTransaction } from '@/lib/vaulted/client'
 import { detailsHash as computeDetailsHash } from '@/lib/vaulted/invoice'
+import { VAULTED_ESCROW_ABI } from '@/lib/vaulted/generated/abi'
 import {
   formatAmount,
   formatCountdown,
@@ -29,6 +31,8 @@ import {
   TxHashLink,
 } from './primitives'
 import { EscrowActions } from './escrow-actions'
+import { TransactionStatus } from './transaction-status'
+import { NetworkGuard } from './wallet'
 
 /**
  * The freelancer's view of one escrow. Everything shown as status comes from a live contract read;
@@ -38,6 +42,38 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
   const { escrow, read, isLoading, refetch, readError, dataUpdatedAt } = useEscrow(invoice.escrowId)
   const secondsLeft = useChainCountdown(escrow?.secondsUntilExpiry ?? null, dataUpdatedAt)
   const [shareUrl, setShareUrl] = useState('')
+  const { address } = useAccount()
+  const tx = useTransaction()
+  const isPayee = address?.toLowerCase() === invoice.payee.toLowerCase()
+
+  /**
+   * Recreates the escrow this request already committed to. `salt` and `detailsHash` are stored on
+   * the row from when the link was published, so this reruns the exact same `createEscrow` call —
+   * the one that failed or was rejected the first time — rather than asking for a new signature.
+   */
+  async function retryCreateEscrow() {
+    const hash = await tx.send({
+      address: invoice.escrowAddress,
+      abi: VAULTED_ESCROW_ABI,
+      functionName: 'createEscrow',
+      args: [
+        (invoice.payer ?? ZERO_ADDRESS) as `0x${string}`,
+        BigInt(invoice.amount),
+        invoice.protectionPeriod,
+        invoice.fundingDeadline,
+        invoice.detailsHash,
+        invoice.salt,
+      ],
+      chainId: invoice.chainId,
+    })
+    if (!hash) return
+    await fetch(`/api/invoices/${invoice.invoiceId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ field: 'createTxHash', hash }),
+    })
+    void refetch()
+  }
 
   useEffect(() => {
     setShareUrl(`${window.location.origin}/pay/${invoice.invoiceId}`)
@@ -98,10 +134,31 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
               rather than stale.
             </Notice>
           ) : !escrow ? (
-            <Notice tone="warn" icon={<Clock size={15} />}>
-              This request has no escrow on chain. If your creation transaction failed, the link will
-              not work until you create it.
-            </Notice>
+            <div className="flex flex-col gap-3">
+              <Notice tone="warn" icon={<Clock size={15} />}>
+                This request has no escrow on chain yet.{' '}
+                {isPayee
+                  ? 'Your creation transaction likely failed or was rejected — create it now to make the link work.'
+                  : 'If the creation transaction failed, the link will not work until the freelancer creates it.'}
+              </Notice>
+              {isPayee && (
+                <NetworkGuard>
+                  <Button
+                    busy={tx.phase === 'signing' || tx.phase === 'pending'}
+                    onClick={() => void retryCreateEscrow()}
+                  >
+                    Create escrow on chain
+                  </Button>
+                </NetworkGuard>
+              )}
+              <TransactionStatus
+                phase={tx.phase}
+                hash={tx.hash}
+                error={tx.error}
+                chain={config.chain}
+                confirmedLabel="Escrow created on chain"
+              />
+            </div>
           ) : termsMatch === false ? (
             <Notice tone="danger" title="Terms mismatch">
               The escrow on chain commits to different terms than this record. Do not share this link.

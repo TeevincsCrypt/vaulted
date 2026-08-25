@@ -146,16 +146,16 @@ function Balances({ address }: { address: `0x${string}` }) {
           <div className="flex items-baseline gap-2">
             {native.isLoading ? (
               <Skeleton className="h-6 w-28" />
-            ) : native.isError ? (
+            ) : !native.data ? (
+              // No read, no number. Falling back to "0" here would tell somebody holding gas that
+              // they hold none, which is the one wrong answer this page must never give.
               <span className="text-[13.5px] text-muted-foreground">unreadable</span>
             ) : (
               <>
                 <span className="text-[17px] font-medium">
-                  {native.data ? formatAmount(native.data.value, native.data.decimals, 6) : '0'}
+                  {formatAmount(native.data.value, native.data.decimals, 6)}
                 </span>
-                <span className="text-[13px] text-muted-foreground">
-                  {native.data?.symbol ?? config?.chain.nativeCurrency.symbol}
-                </span>
+                <span className="text-[13px] text-muted-foreground">{native.data.symbol}</span>
               </>
             )}
           </div>

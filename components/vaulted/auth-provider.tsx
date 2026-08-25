@@ -181,17 +181,51 @@ function PrivyAuthProvider({ children }: { children: ReactNode }) {
   const solanaWalletAddress = solanaEmbedded?.address ?? null
 
   /**
-   * What has already been pushed to the server. The wallet address is part of the key because
-   * Privy creates it just after login: the first sync can legitimately carry no address, and the
-   * second — once the wallet exists — is what records it.
+   * What has already been pushed to the server.
+   *
+   * Privy provisions the wallets a moment after login and the two rails land independently, so the
+   * first sync can legitimately carry no address and a later one is what records it. The key
+   * therefore covers both rails, and the Solana side deliberately uses the addresses Privy is
+   * holding rather than {@link recordedSolanaAddress} — keying on what the server already knows
+   * would mean the sync that first records a Solana wallet could only fire once it was recorded.
+   *
+   * `pending` is the part that makes this self-correcting, and it is there because everything else
+   * in the key is the browser's view. If Privy has not surfaced a wallet to these hooks — it is
+   * still provisioning, or it does not tag the embedded one the way `walletAddress` expects — the
+   * key stops changing and the account is stranded with no address on file. That is not a cosmetic
+   * failure: `accountForAddress` is the only link from a wallet to an account, so an account with
+   * no recorded address is invisible to every notification (an applicant, a hire, a submission) and
+   * to handle resolution, silently and permanently. Keying on the server's own answer means the
+   * sync keeps being retried until the address is actually recorded, and stops as soon as it is.
    */
   const syncedRef = useRef<string | null>(null)
-  const syncKey = authenticated && user ? `${user.id}:${walletAddress ?? ''}` : null
+  const solanaAddresses = solanaWallets
+    .map((wallet) => wallet.address)
+    .sort()
+    .join(',')
+  const addressRecorded = account !== null && account.primaryAddress !== null
+  const syncKey =
+    authenticated && user
+      ? `${user.id}:${walletAddress ?? ''}:${solanaAddresses}:${addressRecorded ? 'recorded' : 'pending'}`
+      : null
+
+  /*
+    Retries while the server still reports no address, since nothing else will change the key in
+    that state. Bounded: this is a wallet that should appear within seconds, and a failure that has
+    not resolved by then is a real one to surface rather than to poll at forever.
+  */
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    if (!ready || !authenticated || addressRecorded || syncing || retry >= 5) return
+    const timer = setTimeout(() => setRetry((value) => value + 1), 4000)
+    return () => clearTimeout(timer)
+  }, [ready, authenticated, addressRecorded, syncing, retry])
 
   useEffect(() => {
     if (!ready || !syncKey) return
-    if (syncedRef.current === syncKey) return
-    syncedRef.current = syncKey
+    const attempt = `${syncKey}:${addressRecorded ? 0 : retry}`
+    if (syncedRef.current === attempt) return
+    syncedRef.current = attempt
 
     let cancelled = false
     void (async () => {
@@ -222,7 +256,7 @@ function PrivyAuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [ready, syncKey, refresh])
+  }, [ready, syncKey, addressRecorded, retry, refresh])
 
   // Tracked apart from `error` so a late arrival clears itself, and so a login failure and a
   // failed load cannot overwrite one another.

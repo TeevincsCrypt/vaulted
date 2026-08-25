@@ -241,7 +241,16 @@ export async function notifyPaymentRequested(invoice: {
 export async function notifyWorkSubmitted(job: { id: string; title: string; clientAddress: string }, byAddress: string) {
   try {
     const client = await accountForAddress(job.clientAddress)
-    if (!client) return
+    if (!client) {
+      // Same delivery failure {@link notifyApplicationReceived} logs, for the same reason: the work
+      // was submitted, the client was simply never told, and a silent return leaves nothing
+      // anywhere to say why.
+      console.error(
+        `[vaulted/notify work submitted] no account owns ${job.clientAddress}, so the client of ` +
+          `${job.id} could not be told work was handed in`,
+      )
+      return
+    }
     const who = await accountForAddress(byAddress)
 
     await create([

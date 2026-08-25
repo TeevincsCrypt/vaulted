@@ -216,6 +216,7 @@ const CONTRACT_ERRORS: Record<string, string> = {
   InvalidState: 'This escrow has already moved past that step.',
   EscrowNotFound: 'No escrow with this id exists on chain.',
   EscrowAlreadyExists: 'An escrow already exists for this payment request.',
+  FundingDeadlineInPast: 'The link deadline on this request has already passed. Create a new request with a later expiry, or none at all.',
   FundingDeadlinePassed: 'This payment link has expired and can no longer be funded.',
   UnexpectedAmountReceived: 'The token did not transfer the full amount, so the deposit was rejected.',
   ArbitrationUnavailable: 'This deployment has no arbiter configured.',

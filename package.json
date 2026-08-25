@@ -28,6 +28,7 @@
     "check:payments": "tsx scripts/check-payment-verification.mjs",
     "check:solana": "tsx scripts/check-solana-transfer.mjs",
     "check:solana-rpc": "node scripts/check-solana-rpc-allowlist.mjs",
+    "check:notifications": "tsx scripts/check-notification-delivery.mjs",
     "e2e:payments": "tsx scripts/e2e-payment-requests.mjs",
     "smoke:ui": "node scripts/smoke-ui.mjs",
     "e2e:issues": "tsx scripts/e2e-reported-issues.mjs"
