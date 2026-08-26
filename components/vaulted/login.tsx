@@ -38,7 +38,7 @@ export function LoginPage({ next }: { next?: string }) {
 
         <Card className="p-8 text-center">
           <VaultedWordmark className="justify-center" size={34} />
-          <h1 className="vt-display mt-6 text-[22px]">Sign in to Vaulted</h1>
+          <h1 className="vt-editorial mt-7 text-[24px] uppercase">Sign in to Vaulted</h1>
           <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">
             Your X handle becomes your Vaulted username, so clients can pay{' '}
             <span className="font-medium">@you</span> instead of an address — and the same step

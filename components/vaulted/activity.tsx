@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Lock, Receipt, RefreshCw, Send } from 'lucide-react'
 import { useAccount } from 'wagmi'
 import { formatAmount, shortAddress, shortHash } from '@/lib/vaulted/format'
-import { Button, Card, Eyebrow, Skeleton } from './primitives'
+import { Button, Card, Chip, EmptyState, Eyebrow, PageHeader, Skeleton } from './primitives'
 import { AppShell } from './shell'
 
 type Event = {
@@ -60,35 +60,26 @@ export function ActivityPage() {
 
   return (
     <AppShell>
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Activity</h1>
-          <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-            Every Vaulted transaction for your wallets, with a link to verify each one on chain.
-          </p>
-        </div>
-        <Button variant="ghost" busy={loading} onClick={load} className="h-8 px-2 text-xs">
-          {!loading && <RefreshCw size={13} />} Refresh
-        </Button>
+      <div className="mb-8">
+        <PageHeader
+          eyebrow="Ledger"
+          title="Activity"
+          body="Every Vaulted transaction for your wallets, with a link to verify each one on chain."
+          actions={
+            <Button variant="ghost" busy={loading} onClick={load}>
+              {!loading && <RefreshCw size={14} />} Refresh
+            </Button>
+          }
+        />
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-1.5">
+      <div className="mb-5 flex flex-wrap gap-1.5">
         {(['ALL', 'CREATED', 'FUNDED', 'SETTLED'] as const).map((option) => {
           const count = option === 'ALL' ? (events?.length ?? 0) : (events ?? []).filter((e) => e.kind === option).length
           return (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setFilter(option)}
-              className={`rounded-lg px-3 py-1.5 text-[13px] transition ${
-                filter === option
-                  ? 'bg-[var(--vt-accent)] font-medium text-[#08080a]'
-                  : 'border border-border text-muted-foreground hover:bg-muted'
-              }`}
-            >
+            <Chip key={option} selected={filter === option} onClick={() => setFilter(option)} count={count}>
               {option === 'ALL' ? 'All' : option.charAt(0) + option.slice(1).toLowerCase()}
-              <span className="ml-1.5 opacity-60">{count}</span>
-            </button>
+            </Chip>
           )
         })}
       </div>
@@ -100,13 +91,11 @@ export function ActivityPage() {
           <Skeleton className="h-[74px]" />
         </div>
       ) : visible.length === 0 ? (
-        <Card className="flex flex-col items-center gap-2 px-7 py-14 text-center">
-          <Receipt size={20} className="text-muted-foreground" />
-          <p className="text-sm font-medium">No transactions yet</p>
-          <p className="max-w-xs text-[13px] text-muted-foreground">
-            Escrow transactions appear here once you create, fund or settle one.
-          </p>
-        </Card>
+        <EmptyState
+          icon={<Receipt size={22} />}
+          title="No transactions yet"
+          body="Escrow transactions appear here once you create, fund or settle one."
+        />
       ) : (
         <div className="flex flex-col gap-2">
           {visible.map((event) => {

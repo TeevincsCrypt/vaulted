@@ -19,7 +19,7 @@ import {
   type InvoiceTerms,
 } from '@/lib/vaulted/invoice'
 import { PROTECTION_PERIOD_PRESETS, formatAmount, formatAmountExact, parseAmount } from '@/lib/vaulted/format'
-import { Button, Card, CopyButton, Divider, Eyebrow, Field, Notice, inputClass } from './primitives'
+import { Button, Card, Chip, CopyButton, Divider, Eyebrow, Field, Notice, StateTrack, inputClass } from './primitives'
 import { TransactionStatus } from './transaction-status'
 import { NetworkGuard, SignInButton } from './wallet'
 
@@ -163,6 +163,17 @@ export function CreateRequest({
     (asClient || (clientValid && !sameWallet))
 
   const busy = stage === 'signing' || stage === 'publishing' || stage === 'chain' || stage === 'funding'
+
+  /*
+    The flow's own stages, as a track. Labelled for what the person has to do rather than for what
+    the code calls it, and the funding step only appears where funding actually happens here — a
+    token escrow is funded on the payment page instead, and promising a step that never comes would
+    be worse than showing one fewer.
+  */
+  const stageSteps = asClient && native
+    ? ['Terms', 'Sign', 'Publish', 'Create', 'Fund']
+    : ['Terms', 'Sign', 'Publish', 'Create']
+  const stageIndex = { form: 0, signing: 1, publishing: 2, chain: 3, funding: 4, done: stageSteps.length }[stage]
   const shareUrl = invoiceId && typeof window !== 'undefined' ? `${window.location.origin}/pay/${invoiceId}` : null
 
   async function submit() {
@@ -298,20 +309,23 @@ export function CreateRequest({
 
   if (stage === 'done' && invoiceId) {
     return (
-      <Card className="p-7">
+      <Card className="p-7 sm:p-9">
+        <div className="mb-8">
+          <StateTrack steps={stageSteps} current={stageSteps.length} />
+        </div>
         <span
-          className="flex size-10 items-center justify-center rounded-xl"
+          className="flex size-11 items-center justify-center rounded-full"
           style={{ background: 'var(--vt-positive-soft)', color: 'var(--vt-positive)' }}
         >
-          <Check size={19} />
+          <Check size={20} />
         </span>
-        <h2 className="vt-display mt-5 text-xl">Payment request is live</h2>
+        <h2 className="vt-editorial mt-6 text-[26px] uppercase">Payment request is live</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           The escrow exists on {config.chain.name}. Share this link with your client — funds go
           straight into the contract, not to us.
         </p>
 
-        <div className="mt-5 flex items-center gap-2 rounded-xl border border-border bg-muted px-3.5 py-3">
+        <div className="mt-5 flex items-center gap-2 rounded-xl border border-white/8 bg-black/25 px-3.5 py-3">
           <Link2 size={15} className="shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{shareUrl}</span>
           {shareUrl && <CopyButton value={shareUrl} label="Copy link" />}
@@ -352,9 +366,20 @@ export function CreateRequest({
   }
 
   return (
-    <Card className="p-7">
+    <Card className="p-7 sm:p-9">
       <Eyebrow>{prefill ? 'Escrow for a job' : 'New payment request'}</Eyebrow>
-      <h2 className="vt-display mt-2 text-xl">
+
+      {/*
+        What raising an escrow actually involves, shown before it starts rather than discovered one
+        prompt at a time. Every step here is a real step the flow takes — the signature, the
+        published record, and the transactions — and the track advances off the same `stage` the
+        submit handler already drives, so it cannot claim progress the flow has not made.
+      */}
+      <div className="mt-7">
+        <StateTrack steps={stageSteps} current={stageIndex} />
+      </div>
+
+      <h2 className="vt-editorial mt-9 text-[26px] uppercase">
         {prefill ? 'Secure the agreed budget' : 'Get paid, with escrow protection'}
       </h2>
       <p className="mt-1.5 text-sm text-muted-foreground">
@@ -372,9 +397,9 @@ export function CreateRequest({
               { key: 'token' as const, label: config.token.symbol },
               { key: 'native' as const, label: config.chain.nativeCurrency.symbol },
             ]).map((option) => (
-              <button
+              <Chip
                 key={option.key}
-                type="button"
+                selected={asset === option.key}
                 disabled={busy || Boolean(prefill)}
                 onClick={() => {
                   setAsset(option.key)
@@ -382,14 +407,9 @@ export function CreateRequest({
                   // quantity here.
                   setAmountInput('')
                 }}
-                className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
-                  asset === option.key
-                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
-                    : 'border-border hover:bg-muted'
-                }`}
               >
                 {option.label}
-              </button>
+              </Chip>
             ))}
           </div>
         </Field>
@@ -436,16 +456,25 @@ export function CreateRequest({
         ) : (
         <Field
           label="Client"
+          /*
+            Nothing typed is not an error. An untouched field was greeting people with "That is not
+            a wallet address or handle." the moment the form loaded, which reads as a mistake they
+            have already made. The hint below says the field is required, and the submit button was
+            always gated on the same `clientValid` — so this only stops the accusation, it does not
+            let an empty field through.
+          */
           error={
-            !clientValid
-              ? looksLikeHandle && !resolving
-                ? resolved === null
-                  ? 'No Vaulted account with that handle.'
-                  : 'That account has not linked a wallet yet, so it cannot be paid.'
-                : 'That is not a wallet address or handle.'
-              : sameWallet
-                ? 'This cannot be your own wallet.'
-                : null
+            raw === ''
+              ? null
+              : !clientValid
+                ? looksLikeHandle && !resolving
+                  ? resolved === null
+                    ? 'No Vaulted account with that handle.'
+                    : 'That account has not linked a wallet yet, so it cannot be paid.'
+                  : 'That is not a wallet address or handle.'
+                : sameWallet
+                  ? 'This cannot be your own wallet.'
+                  : null
           }
           hint={
             resolving
@@ -469,19 +498,14 @@ export function CreateRequest({
         <Field label="Protection window" hint="Counted from the moment the client funds the escrow.">
           <div className="flex flex-wrap gap-2">
             {PROTECTION_PERIOD_PRESETS.map((preset) => (
-              <button
+              <Chip
                 key={preset.seconds}
-                type="button"
+                selected={protectionPeriod === preset.seconds}
                 disabled={busy}
                 onClick={() => setProtectionPeriod(preset.seconds)}
-                className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
-                  protectionPeriod === preset.seconds
-                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
-                    : 'border-border hover:bg-muted'
-                }`}
               >
                 {preset.label}
-              </button>
+              </Chip>
             ))}
           </div>
         </Field>

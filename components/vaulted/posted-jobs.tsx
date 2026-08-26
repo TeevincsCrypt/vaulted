@@ -18,7 +18,7 @@ import { formatAmount, formatTimestamp, shortAddress } from '@/lib/vaulted/forma
 import { EscrowState, type DisplayStatus } from '@/lib/vaulted/status'
 import { EscrowActions } from './escrow-actions'
 import { useEscrow } from '@/lib/vaulted/client'
-import { Button, Card, Divider, Eyebrow, Notice, Skeleton, StatusPill } from './primitives'
+import { Button, Card, Divider, EmptyState, Notice, PageHeader, Skeleton, StatusPill } from './primitives'
 import { AppShell } from './shell'
 
 type PostedJob = {
@@ -94,22 +94,27 @@ export function PostedJobs() {
 
   return (
     <AppShell>
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Jobs I posted</h1>
-          <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-            Every job you posted, including the ones already assigned — review submitted work and
-            release the funds here.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" busy={loading} onClick={load} className="h-8 px-2 text-xs">
-            {!loading && <RefreshCw size={13} />} Refresh
-          </Button>
-          <Link href="/jobs">
-            <Button variant="secondary">Open board</Button>
-          </Link>
-        </div>
+      <div className="mb-8">
+        <PageHeader
+          eyebrow="Client"
+          title="Jobs I posted"
+          body={
+            <>
+              Every job you posted, including the ones already assigned — review submitted work and
+              release the funds here.
+            </>
+          }
+          actions={
+            <>
+              <Button variant="ghost" busy={loading} onClick={load}>
+                {!loading && <RefreshCw size={14} />} Refresh
+              </Button>
+              <Link href="/jobs">
+                <Button variant="secondary">Open board</Button>
+              </Link>
+            </>
+          }
+        />
       </div>
 
       {jobs === null ? (
@@ -118,13 +123,16 @@ export function PostedJobs() {
           <Skeleton className="h-[140px]" />
         </div>
       ) : jobs.length === 0 ? (
-        <Card className="flex flex-col items-center gap-2 px-7 py-14 text-center">
-          <Briefcase size={20} className="text-muted-foreground" />
-          <p className="text-sm font-medium">You have not posted any jobs</p>
-          <Link href="/jobs" className="mt-1 text-[13px]" style={{ color: 'var(--vt-accent)' }}>
-            Post one →
-          </Link>
-        </Card>
+        <EmptyState
+          icon={<Briefcase size={22} />}
+          title="No jobs posted"
+          body="Post work with a budget attached and it shows up here at every stage — applicants, submission, release."
+          action={
+            <Link href="/jobs">
+              <Button>Post a job</Button>
+            </Link>
+          }
+        />
       ) : (
         <div className="flex flex-col gap-3">
           {jobs.map((job) => (
@@ -143,36 +151,47 @@ function PostedJobCard({ job, onChanged }: { job: PostedJob; onChanged: () => vo
 
   return (
     <Card className="p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/jobs/${job.jobId}`} className="text-[15px] font-medium hover:underline">
+            <Link href={`/jobs/${job.jobId}`} className="text-[14.5px] font-medium hover:underline">
               {job.title}
             </Link>
-            <span className="vt-eyebrow rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{job.status}</span>
+            <span className="rounded-full border border-white/12 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+              {job.status}
+            </span>
             {job.escrow && <StatusPill status={job.escrow.status as DisplayStatus} />}
           </div>
-          <p className="mt-1.5 line-clamp-2 text-[12.5px] leading-relaxed text-muted-foreground">{job.description}</p>
-          <p className="mt-2 flex flex-wrap items-center gap-x-2 text-[12px] text-muted-foreground">
+          <p className="mt-2 line-clamp-2 text-[12.5px] leading-relaxed text-muted-foreground">{job.description}</p>
+          <p className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
             <span>{job.chainName}</span>
-            <span aria-hidden>·</span>
-            <span>{job.applicationCount} applicant{job.applicationCount === 1 ? '' : 's'}</span>
+            <span className="inline-flex items-center gap-2.5">
+              <span aria-hidden className="opacity-40">/</span>
+              {job.applicationCount} applicant{job.applicationCount === 1 ? '' : 's'}
+            </span>
             {job.assignedTo && (
-              <>
-                <span aria-hidden>·</span>
-                <span>Assigned to {shortAddress(job.assignedTo)}</span>
-              </>
+              // The meta row is set in capitals; an address is not, and uppercasing one destroys
+              // the checksum casing that makes it verifiable.
+              <span className="inline-flex items-center gap-2.5">
+                <span aria-hidden className="opacity-40">/</span>
+                <span>
+                  Assigned to <span className="normal-case">{shortAddress(job.assignedTo)}</span>
+                </span>
+              </span>
             )}
             {job.deadline && (
-              <>
-                <span aria-hidden>·</span>
-                <span>Due {formatTimestamp(job.deadline)}</span>
-              </>
+              <span className="inline-flex items-center gap-2.5">
+                <span aria-hidden className="opacity-40">/</span>
+                Due {formatTimestamp(job.deadline)}
+              </span>
             )}
           </p>
         </div>
-        <p className="vt-numeric shrink-0 text-sm font-semibold">
-          {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
+        <p className="vt-numeric vt-editorial shrink-0 text-[19px] leading-none">
+          {formatAmount(job.budgetAmount, job.token.decimals)}
+          <span className="ml-1.5 text-[0.58em] uppercase tracking-[0.12em] text-muted-foreground">
+            {job.token.symbol}
+          </span>
         </p>
       </div>
 
@@ -181,7 +200,7 @@ function PostedJobCard({ job, onChanged }: { job: PostedJob; onChanged: () => vo
           <Divider className="my-5" />
 
           {job.submittedAt ? (
-            <div className="rounded-xl border border-border bg-muted/40 p-4">
+            <div className="rounded-xl border border-white/8 bg-black/25 p-4">
               <p className="inline-flex items-center gap-1.5 text-[13px] font-medium" style={{ color: 'var(--vt-positive)' }}>
                 <FileCheck2 size={14} /> Work submitted {formatTimestamp(job.submittedAt)}
               </p>
@@ -232,12 +251,10 @@ function PostedJobCard({ job, onChanged }: { job: PostedJob; onChanged: () => vo
                   No escrow exists for this job. Create and fund it here — the freelancer pays
                   nothing and needs no balance of their own.
                 </Notice>
-                <Link
-                  href={`/request?job=${job.jobId}`}
-                  className="inline-flex h-12 w-fit items-center gap-2 rounded-xl px-6 text-[15px] font-semibold text-[#08080a] transition-transform hover:-translate-y-0.5"
-                  style={{ background: 'var(--vt-accent)' }}
-                >
-                  Secure {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
+                <Link href={`/request?job=${job.jobId}`} className="w-fit">
+                  <Button>
+                    Secure {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
+                  </Button>
                 </Link>
               </div>
             ) : !job.escrow?.live ? (
@@ -254,12 +271,10 @@ function PostedJobCard({ job, onChanged }: { job: PostedJob; onChanged: () => vo
                   The escrow exists but holds nothing until you fund it. Do it before work starts —
                   until then there is no protection for either side.
                 </Notice>
-                <Link
-                  href={`/pay/${job.invoiceId}`}
-                  className="inline-flex h-12 w-fit items-center gap-2 rounded-xl px-6 text-[15px] font-semibold text-[#08080a] transition-transform hover:-translate-y-0.5"
-                  style={{ background: 'var(--vt-accent)' }}
-                >
-                  Fund {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
+                <Link href={`/pay/${job.invoiceId}`} className="w-fit">
+                  <Button>
+                    Fund {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
+                  </Button>
                 </Link>
               </div>
             ) : live && config ? (

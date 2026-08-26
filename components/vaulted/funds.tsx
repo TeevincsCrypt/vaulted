@@ -11,11 +11,13 @@ import { useVaultedAuth } from './auth-provider'
 import {
   Button,
   Card,
+  Chip,
   CopyButton,
   Divider,
   Eyebrow,
   Field,
   Notice,
+  PageHeader,
   Skeleton,
   inputClass,
 } from './primitives'
@@ -61,11 +63,16 @@ export function Funds() {
 
   return (
     <AppShell>
-      <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Funds</h1>
-      <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-        What is in {account ? <span className="text-foreground">@{account.name}</span> : 'your'}
-        &rsquo;s wallet right now, how to add to it, and how to send it somewhere else.
-      </p>
+      <PageHeader
+        eyebrow="Wallet"
+        title="Funds"
+        body={
+          <>
+            What is in {account ? <span className="text-foreground">@{account.name}</span> : 'your'}
+            &rsquo;s wallet right now, how to add to it, and how to send it somewhere else.
+          </>
+        }
+      />
 
       {!address ? (
         <div className="mt-8 max-w-sm">
@@ -87,8 +94,8 @@ export function Funds() {
       ) : (
         <div className="mt-8 flex flex-col gap-8">
           <section>
-            <Eyebrow>{config.chainName}</Eyebrow>
-            <div className="mt-3 grid items-start gap-5 lg:grid-cols-2">
+            <NetworkHeading name={config.chainName} />
+            <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
               <Balances address={address} />
               <Receive address={address} />
               <div className="lg:col-span-2">
@@ -99,8 +106,8 @@ export function Funds() {
 
           {solanaAddress && (
             <section>
-              <Eyebrow>Solana</Eyebrow>
-              <div className="mt-3 grid items-start gap-5 lg:grid-cols-2">
+              <NetworkHeading name="Solana" />
+              <div className="mt-5 grid items-start gap-5 lg:grid-cols-2">
                 <SolanaFunds address={solanaAddress} />
               </div>
             </section>
@@ -108,6 +115,62 @@ export function Funds() {
         </div>
       )}
     </AppShell>
+  )
+}
+
+/*
+  Which network the panels below are about.
+
+  The wallet holds money on more than one chain, and those balances are not interchangeable — a
+  heading that runs a rule across the page is what keeps the Solana figures from reading as a
+  continuation of the Base ones.
+*/
+function NetworkHeading({ name }: { name: string }) {
+  return (
+    <div className="flex items-center gap-4">
+      <Eyebrow className="shrink-0">{name}</Eyebrow>
+      <span
+        aria-hidden
+        className="h-px flex-1"
+        style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.14), transparent)' }}
+      />
+    </div>
+  )
+}
+
+/*
+  One asset the wallet holds, as a ledger line: the ticker in tracked caps, then the figure, then
+  what the asset is actually for.
+
+  The ticker moves above the number rather than trailing it. Two balances stacked in a panel were
+  reading as one long sentence, and the symbol is what tells you which of them you are looking at,
+  so it goes where the eye lands first. The figure carries the display face and tabular figures so
+  the two lines align on the decimal.
+*/
+function BalanceLine({
+  asset,
+  note,
+  lead,
+  children,
+}: {
+  asset: string
+  note: string
+  /** The headline asset of the panel, set larger than the one that only pays for gas. */
+  lead?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{asset}</p>
+      <div
+        className={`vt-editorial vt-numeric mt-3 leading-none ${
+          lead ? 'text-[clamp(1.9rem,4vw,2.4rem)]' : 'text-[19px]'
+        }`}
+      >
+        {children}
+      </div>
+      <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">{note}</p>
+    </div>
   )
 }
 
@@ -120,50 +183,37 @@ function Balances({ address }: { address: `0x${string}` }) {
     <Card className="p-7">
       <Eyebrow>Balance</Eyebrow>
 
-      <div className="mt-4 flex flex-col gap-4">
-        <div>
-          <div className="flex items-baseline gap-2">
-            {token.isLoading ? (
-              <Skeleton className="h-9 w-40" />
-            ) : token.isError ? (
-              <span className="text-[15px] text-muted-foreground">unreadable</span>
-            ) : (
-              <>
-                <span className="text-[30px] font-semibold leading-none tracking-tight">
-                  {formatAmountExact(token.data ?? 0n, config?.token.decimals ?? 6)}
-                </span>
-                <span className="text-[15px] text-muted-foreground">{config?.token.symbol}</span>
-              </>
-            )}
-          </div>
-          <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-            What Vaulted payments are denominated in, on {config?.chainName}.
-          </p>
-        </div>
+      <div className="mt-6 flex flex-col gap-5">
+        <BalanceLine
+          asset={config?.token.symbol ?? 'Token'}
+          note={`What Vaulted payments are denominated in, on ${config?.chainName ?? 'this network'}.`}
+          lead
+        >
+          {token.isLoading ? (
+            <Skeleton className="h-9 w-40" />
+          ) : token.isError ? (
+            <span className="text-[15px] text-muted-foreground">unreadable</span>
+          ) : (
+            formatAmountExact(token.data ?? 0n, config?.token.decimals ?? 6)
+          )}
+        </BalanceLine>
 
         <Divider />
 
-        <div>
-          <div className="flex items-baseline gap-2">
-            {native.isLoading ? (
-              <Skeleton className="h-6 w-28" />
-            ) : !native.data ? (
-              // No read, no number. Falling back to "0" here would tell somebody holding gas that
-              // they hold none, which is the one wrong answer this page must never give.
-              <span className="text-[13.5px] text-muted-foreground">unreadable</span>
-            ) : (
-              <>
-                <span className="text-[17px] font-medium">
-                  {formatAmount(native.data.value, native.data.decimals, 6)}
-                </span>
-                <span className="text-[13px] text-muted-foreground">{native.data.symbol}</span>
-              </>
-            )}
-          </div>
-          <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-            Gas. Every transaction — funding, releasing, withdrawing — needs some.
-          </p>
-        </div>
+        <BalanceLine
+          asset={native.data?.symbol ?? config?.chain.nativeCurrency.symbol ?? 'Gas'}
+          note="Gas. Every transaction — funding, releasing, withdrawing — needs some."
+        >
+          {native.isLoading ? (
+            <Skeleton className="h-6 w-28" />
+          ) : !native.data ? (
+            // No read, no number. Falling back to "0" here would tell somebody holding gas that
+            // they hold none, which is the one wrong answer this page must never give.
+            <span className="text-[13.5px] text-muted-foreground">unreadable</span>
+          ) : (
+            formatAmount(native.data.value, native.data.decimals, 6)
+          )}
+        </BalanceLine>
       </div>
 
       {(token.isError || native.isError) && (
@@ -190,14 +240,14 @@ function Receive({ address }: { address: `0x${string}` }) {
   return (
     <Card className="p-7">
       <Eyebrow>Add funds</Eyebrow>
-      <h2 className="vt-display mt-2 text-lg">Send to this address</h2>
+      <h2 className="vt-editorial mt-3 text-[21px] uppercase">Send to this address</h2>
       <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
         There is no deposit to authorise: the wallet is yours and anything sent to this address on{' '}
         {config?.chainName} arrives directly, whether from an exchange, another wallet, or a client
         paying you.
       </p>
 
-      <div className="mt-5 rounded-xl border border-border bg-muted/40 p-4">
+      <div className="mt-5 rounded-xl border border-white/8 bg-black/25 p-4">
         <p className="break-all font-mono text-[13px] leading-relaxed">{address}</p>
         <div className="mt-3">
           <CopyButton value={address} label="Copy address" />
@@ -297,7 +347,7 @@ function Withdraw({ address }: { address: `0x${string}` }) {
   return (
     <Card className="p-7">
       <Eyebrow>Withdraw</Eyebrow>
-      <h2 className="vt-display mt-2 text-lg">Send {symbol} somewhere else</h2>
+      <h2 className="vt-editorial mt-3 text-[21px] uppercase">Send {symbol} somewhere else</h2>
       <p className="mt-1.5 max-w-xl text-[13.5px] leading-relaxed text-muted-foreground">
         A transfer from your wallet, signed by you. It is final once confirmed — the chain has no
         undo, and neither does Vaulted.
@@ -312,9 +362,9 @@ function Withdraw({ address }: { address: `0x${string}` }) {
               { key: 'token' as const, label: config?.token.symbol ?? 'USDC' },
               { key: 'native' as const, label: native.data?.symbol ?? config?.chain.nativeCurrency.symbol ?? 'ETH' },
             ]).map((option) => (
-              <button
+              <Chip
                 key={option.key}
-                type="button"
+                selected={asset === option.key}
                 onClick={() => {
                   setAsset(option.key)
                   // Typed against the other asset's decimals and balance — the same digits would
@@ -323,14 +373,9 @@ function Withdraw({ address }: { address: `0x${string}` }) {
                   setError(null)
                   tx.reset()
                 }}
-                className={`rounded-lg border px-3 py-2 text-[13px] transition ${
-                  asset === option.key
-                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
-                    : 'border-border hover:bg-muted'
-                }`}
               >
                 {option.label}
-              </button>
+              </Chip>
             ))}
           </div>
         </Field>
@@ -508,48 +553,32 @@ function SolanaFunds({ address }: { address: string }) {
     <>
       <Card className="p-7">
         <Eyebrow>Balance</Eyebrow>
-        <div className="mt-4 flex flex-col gap-4">
-          <div>
-            <div className="flex items-baseline gap-2">
-              {state.status === 'loading' ? (
-                <Skeleton className="h-9 w-40" />
-              ) : state.status === 'error' ? (
-                <span className="text-[15px] text-muted-foreground">unreadable</span>
-              ) : (
-                <>
-                  <span className="text-[30px] font-semibold leading-none tracking-tight">
-                    {formatAmountExact(state.token.amount, state.token.decimals)}
-                  </span>
-                  <span className="text-[15px] text-muted-foreground">{state.token.symbol}</span>
-                </>
-              )}
-            </div>
-            <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-              USDC on Solana. Payment links settle here too.
-            </p>
-          </div>
+        <div className="mt-6 flex flex-col gap-5">
+          <BalanceLine
+            asset={state.status === 'ok' ? state.token.symbol : 'USDC'}
+            note="USDC on Solana. Payment links settle here too."
+            lead
+          >
+            {state.status === 'loading' ? (
+              <Skeleton className="h-9 w-40" />
+            ) : state.status === 'error' ? (
+              <span className="text-[15px] text-muted-foreground">unreadable</span>
+            ) : (
+              formatAmountExact(state.token.amount, state.token.decimals)
+            )}
+          </BalanceLine>
 
           <Divider />
 
-          <div>
-            <div className="flex items-baseline gap-2">
-              {state.status === 'ok' ? (
-                <>
-                  <span className="text-[17px] font-medium">
-                    {formatAmount(state.native.amount, 9, 6)}
-                  </span>
-                  <span className="text-[13px] text-muted-foreground">SOL</span>
-                </>
-              ) : state.status === 'loading' ? (
-                <Skeleton className="h-6 w-28" />
-              ) : (
-                <span className="text-[13.5px] text-muted-foreground">unreadable</span>
-              )}
-            </div>
-            <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-              Solana fees, and the rent for a token account.
-            </p>
-          </div>
+          <BalanceLine asset="SOL" note="Solana fees, and the rent for a token account.">
+            {state.status === 'ok' ? (
+              formatAmount(state.native.amount, 9, 6)
+            ) : state.status === 'loading' ? (
+              <Skeleton className="h-6 w-28" />
+            ) : (
+              <span className="text-[13.5px] text-muted-foreground">unreadable</span>
+            )}
+          </BalanceLine>
         </div>
 
         {state.status === 'error' && (
@@ -561,13 +590,13 @@ function SolanaFunds({ address }: { address: string }) {
 
       <Card className="p-7">
         <Eyebrow>Add funds</Eyebrow>
-        <h2 className="vt-display mt-2 text-lg">Send USDC on Solana here</h2>
+        <h2 className="vt-editorial mt-3 text-[21px] uppercase">Send USDC on Solana here</h2>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
           Your Solana wallet, provisioned with the account. Anything sent to it on Solana mainnet
           arrives directly.
         </p>
 
-        <div className="mt-5 rounded-xl border border-border bg-muted/40 p-4">
+        <div className="mt-5 rounded-xl border border-white/8 bg-black/25 p-4">
           <p className="break-all font-mono text-[13px] leading-relaxed">{address}</p>
           <div className="mt-3">
             <CopyButton value={address} label="Copy Solana address" />

@@ -7,7 +7,7 @@ import { useAccount } from 'wagmi'
 import type { DashboardRow, DashboardTotals } from '@/lib/vaulted/server/dashboard'
 import { formatAmount, formatCountdown, formatTimestamp, shortAddress } from '@/lib/vaulted/format'
 import type { DisplayStatus } from '@/lib/vaulted/status'
-import { Button, Card, Eyebrow, Notice, Skeleton, StatusPill } from './primitives'
+import { Button, Card, Chip, EmptyState, Eyebrow, Notice, Skeleton, Stat, StatusPill } from './primitives'
 
 /**
  * The authenticated overview.
@@ -93,19 +93,14 @@ export function DashboardOverview() {
         {SECTIONS.map((entry) => {
           const count = rows.filter(entry.match).length
           return (
-            <button
+            <Chip
               key={entry.key}
-              type="button"
+              selected={section === entry.key}
               onClick={() => setSection(entry.key)}
-              className={`rounded-lg px-3 py-1.5 text-[13px] transition ${
-                section === entry.key
-                  ? 'bg-[var(--vt-accent)] text-[#08080a] font-medium'
-                  : 'border border-border text-muted-foreground hover:bg-muted'
-              }`}
+              count={count}
             >
               {entry.label}
-              <span className="ml-1.5 opacity-60">{count}</span>
-            </button>
+            </Chip>
           )
         })}
       </div>
@@ -113,10 +108,7 @@ export function DashboardOverview() {
       {data === null && loading ? (
         <Skeleton className="h-24 w-full" />
       ) : visible.length === 0 ? (
-        <Card className="flex flex-col items-center gap-2 px-7 py-10 text-center">
-          <Inbox size={19} className="text-muted-foreground" />
-          <p className="text-sm font-medium">Nothing here yet</p>
-        </Card>
+        <EmptyState icon={<Inbox size={22} />} title="Nothing here yet" />
       ) : (
         <div className="flex flex-col gap-2">
           {visible.map((row) => (
@@ -146,14 +138,9 @@ function Totals({ totals }: { totals: DashboardTotals }) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-      {tiles.map((tile) => (
-        <Card key={tile.label} className="px-5 py-4">
-          <p className="vt-eyebrow text-muted-foreground">{tile.label}</p>
-          <p className="vt-numeric mt-2 truncate text-[19px] font-semibold" title={tile.value}>
-            {tile.value}
-          </p>
-          {tile.hint && <p className="mt-1 text-[11px] text-muted-foreground">{tile.hint}</p>}
-        </Card>
+      {tiles.map((tile, index) => (
+        // The amount held is the figure this page exists for, so it is the one that takes accent.
+        <Stat key={tile.label} label={tile.label} value={tile.value} note={tile.hint} accent={index === 0} />
       ))}
     </div>
   )
@@ -219,7 +206,7 @@ function VaultRow({ row }: { row: DashboardRow }) {
         </div>
 
         {row.actions.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-white/8 pt-4">
             {row.actions.map((action) => {
               const entry = ACTION_LABEL[action]
               if (!entry) return null

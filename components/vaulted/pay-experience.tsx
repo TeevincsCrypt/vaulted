@@ -32,6 +32,7 @@ import {
   Eyebrow,
   Notice,
   Skeleton,
+  StateTrack,
   StatusPill,
   TxHashLink,
 } from './primitives'
@@ -133,6 +134,32 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
     state === EscrowState.Resolved ||
     state === EscrowState.Cancelled
 
+  /*
+    Where this escrow is along its life, derived the same way the freelancer's page derives it —
+    from the live read, never from the row. A funded escrow inside its window and one past it are
+    the same contract state but different situations, so they are different steps.
+  */
+  const trackPosition =
+    state === EscrowState.None
+      ? -1
+      : state === EscrowState.Created
+        ? 0
+        : state === EscrowState.Funded || state === EscrowState.Disputed
+          ? escrow?.isExpired
+            ? 2
+            : 1
+          : 3
+  const terminalStep =
+    state === EscrowState.Refunded
+      ? ({ label: 'Refunded', tone: 'warn' } as const)
+      : state === EscrowState.Cancelled
+        ? ({ label: 'Cancelled', tone: 'warn' } as const)
+        : state === EscrowState.Resolved
+          ? ({ label: 'Resolved', tone: 'warn' } as const)
+          : state === EscrowState.Disputed
+            ? ({ label: 'Disputed', tone: 'danger' } as const)
+            : null
+
   return (
     <div className="vt-canvas min-h-screen">
       <div className="mx-auto flex min-h-screen max-w-[460px] flex-col justify-center px-5 py-12">
@@ -152,7 +179,7 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
               <AddressChip address={invoice.payee} chain={config.chain} size={5} />
             </div>
 
-            <p className="vt-display vt-numeric mt-5 text-[44px] leading-none">
+            <p className="vt-editorial vt-numeric mt-6 text-[clamp(2.6rem,7vw,3.4rem)] leading-none">
               {formatAmount(amount, invoice.token.decimals)}
               <span className="ml-2 align-middle text-xl font-medium text-muted-foreground">
                 {invoice.token.symbol}
@@ -173,6 +200,19 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
                 Escrow protected
               </span>
             </div>
+          </div>
+
+          {/*
+            The same lifecycle track the freelancer sees on their own copy of this escrow. The payer
+            is the one deciding whether to put money in, so the distance between "funded" and
+            "settled" is if anything more their business than anybody's.
+          */}
+          <div className="mt-7 px-7">
+            <StateTrack
+              steps={['Created', 'Funded', 'Protected', 'Settled']}
+              current={trackPosition}
+              terminal={terminalStep}
+            />
           </div>
 
           <div className="mt-6 px-7">
@@ -258,7 +298,7 @@ export function PayExperience({ invoice, config }: { invoice: SerialisedInvoice;
           )}
 
           {/* ---------------- Verifiable facts ---------------- */}
-          <div className="border-t border-border bg-muted/50 px-7 py-4">
+          <div className="border-t border-white/8 bg-black/25 px-7 py-5">
             <dl className="flex flex-col gap-1.5 text-[12px]">
               <Fact label="Network" value={config.chain.name} />
               <Fact
@@ -497,9 +537,9 @@ function LockedPanel({
   }
 
   return (
-    <div className="flex flex-col items-center gap-1.5 rounded-xl bg-muted px-4 py-5 text-center">
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-white/8 bg-black/25 px-4 py-6 text-center">
       <p className="vt-eyebrow text-muted-foreground">Protection window closes in</p>
-      <p className="vt-numeric vt-display text-3xl">{formatCountdown(secondsLeft)}</p>
+      <p className="vt-numeric vt-editorial text-[2rem] leading-none">{formatCountdown(secondsLeft)}</p>
       <p className="text-[12px] text-muted-foreground">
         {formatAmount(amount, invoice.token.decimals)} {invoice.token.symbol} locked · settles to{' '}
         {invoice.payee.slice(0, 6)}… on {formatTimestamp(escrow.expiresAt)}

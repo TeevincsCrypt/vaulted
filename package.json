@@ -32,7 +32,8 @@
     "check:wallet-only": "node scripts/check-embedded-wallet-only.mjs",
     "e2e:payments": "tsx scripts/e2e-payment-requests.mjs",
     "smoke:ui": "node scripts/smoke-ui.mjs",
-    "e2e:issues": "tsx scripts/e2e-reported-issues.mjs"
+    "e2e:issues": "tsx scripts/e2e-reported-issues.mjs",
+    "check:chrome": "node scripts/check-app-chrome.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

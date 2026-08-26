@@ -9,7 +9,7 @@ import { workSubmissionMessage } from '@/lib/vaulted/messages'
 import { Field, inputClass } from './primitives'
 import { formatAmount, formatTimestamp, shortAddress } from '@/lib/vaulted/format'
 import { STATUS_COPY, type DisplayStatus } from '@/lib/vaulted/status'
-import { Button, Card, Eyebrow, Notice, Skeleton, StatusPill } from './primitives'
+import { Button, Card, EmptyState, Eyebrow, Notice, PageHeader, Skeleton, StatusPill } from './primitives'
 import { AppShell } from './shell'
 
 type WorkRow = {
@@ -70,16 +70,17 @@ export function WorkPage() {
 
   return (
     <AppShell>
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">My work</h1>
-          <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-            Jobs you applied to, and the live state of the escrow behind anything you were hired for.
-          </p>
-        </div>
-        <Button variant="ghost" busy={loading} onClick={load} className="h-8 px-2 text-xs">
-          {!loading && <RefreshCw size={13} />} Refresh
-        </Button>
+      <div className="mb-8">
+        <PageHeader
+          eyebrow="Freelancer"
+          title="My work"
+          body="Jobs you applied to, and the live state of the escrow behind anything you were hired for."
+          actions={
+            <Button variant="ghost" busy={loading} onClick={load}>
+              {!loading && <RefreshCw size={14} />} Refresh
+            </Button>
+          }
+        />
       </div>
 
       {rows === null ? (
@@ -88,16 +89,16 @@ export function WorkPage() {
           <Skeleton className="h-[120px]" />
         </div>
       ) : rows.length === 0 ? (
-        <Card className="flex flex-col items-center gap-2 px-7 py-14 text-center">
-          <Briefcase size={20} className="text-muted-foreground" />
-          <p className="text-sm font-medium">No applications yet</p>
-          <p className="max-w-xs text-[13px] text-muted-foreground">
-            Apply to a job and it shows up here, along with whatever escrow gets created for it.
-          </p>
-          <Link href="/jobs" className="mt-2 text-[13px]" style={{ color: 'var(--vt-accent)' }}>
-            Browse open jobs →
-          </Link>
-        </Card>
+        <EmptyState
+          icon={<Briefcase size={22} />}
+          title="No applications yet"
+          body="Apply to a job and it shows up here, along with whatever escrow gets created for it."
+          action={
+            <Link href="/jobs">
+              <Button>Browse open jobs</Button>
+            </Link>
+          }
+        />
       ) : (
         <div className="flex flex-col gap-8">
           <Group title="Hired" rows={hired} emptyLabel="Nothing yet." highlight onChanged={load} />

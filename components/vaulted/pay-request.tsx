@@ -321,7 +321,7 @@ function PayControls({
         </>
       )}
 
-      <div className="rounded-xl border border-border bg-muted/40 p-4">
+      <div className="rounded-xl border border-white/8 bg-black/25 p-4">
         <p className="text-[12.5px] leading-relaxed text-muted-foreground">
           Send exactly{' '}
           <span className="text-foreground">

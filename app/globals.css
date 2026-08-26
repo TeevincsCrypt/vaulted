@@ -27,21 +27,29 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces, from furthest back to closest. */
+  /*
+    Surfaces, from furthest back to closest.
+
+    The borders and inset fills are translucent white rather than flat greys. The panels this UI is
+    built from are gradients, so an opaque grey border drawn on one sits *on* it instead of being
+    part of it — which is what made a menu, a dropdown and a card that were meant to be the same
+    material read as three different ones. Anything that must hide what is behind it — a popover, a
+    floating menu — stays opaque, because see-through text is a bug, not a texture.
+  */
   --background: #08080a;
   --foreground: #f4f4f5;
-  --card: #101014;
+  --card: #0e0e11;
   --card-foreground: #f4f4f5;
-  --popover: #131318;
+  --popover: #101014;
   --popover-foreground: #f4f4f5;
   --secondary: #17171d;
   --secondary-foreground: #f4f4f5;
-  --muted: #16161b;
+  --muted: rgba(255, 255, 255, 0.04);
   --muted-foreground: #9a9aa5;
   --accent: #1c1c23;
   --accent-foreground: #f4f4f5;
-  --border: #23232b;
-  --input: #2a2a33;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.14);
   --ring: #ff8a00;
 
   /* Vaulted amber. The single accent, used for actions and emphasis. */

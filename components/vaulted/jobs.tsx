@@ -9,7 +9,20 @@ import { formatAmount, formatTimestamp, parseAmount, PROTECTION_PERIOD_PRESETS, 
 import { jobAcceptMessage, jobApplicationMessage, jobCreationMessage } from '@/lib/vaulted/messages'
 import { defaultChain, defaultPaymentChain, getChain, paymentChains } from '@/lib/vaulted/registry'
 import { ChainSelector } from './chain-selector'
-import { AddressChip, Button, Card, Divider, Eyebrow, Field, Notice, Skeleton, inputClass } from './primitives'
+import {
+  AddressChip,
+  Button,
+  Card,
+  Chip,
+  Divider,
+  EmptyState,
+  Eyebrow,
+  Field,
+  Notice,
+  PageHeader,
+  Skeleton,
+  inputClass,
+} from './primitives'
 import { AppShell } from './shell'
 import { SignInButton } from './wallet'
 
@@ -85,17 +98,22 @@ export function JobsBoard() {
 
   return (
     <AppShell>
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Open jobs</h1>
-          <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-            Work posted with a budget attached. Whether a job&rsquo;s escrow is funded is read from the
-            chain on its page — never asserted here.
-          </p>
-        </div>
-        <Button onClick={() => setComposing((value) => !value)}>
-          {composing ? 'Close' : 'Post a job'}
-        </Button>
+      <div className="mb-8">
+        <PageHeader
+          eyebrow="Marketplace"
+          title="Open jobs"
+          body={
+            <>
+              Work posted with a budget attached. Whether a job&rsquo;s escrow is funded is read from
+              the chain on its page — never asserted here.
+            </>
+          }
+          actions={
+            <Button variant={composing ? 'secondary' : 'primary'} onClick={() => setComposing((value) => !value)}>
+              {composing ? 'Close' : 'Post a job'}
+            </Button>
+          }
+        />
       </div>
 
       {composing && (
@@ -115,52 +133,71 @@ export function JobsBoard() {
           <Skeleton className="h-[104px]" />
         </div>
       ) : jobs.length === 0 ? (
-        <Card className="flex flex-col items-center gap-2 px-7 py-14 text-center">
-          <Briefcase size={20} className="text-muted-foreground" />
-          <p className="text-sm font-medium">No open jobs yet</p>
-          <p className="max-w-xs text-[13px] text-muted-foreground">
-            Post one and it appears here for freelancers to apply to.
-          </p>
-        </Card>
+        <EmptyState
+          icon={<Briefcase size={22} />}
+          title="No open jobs yet"
+          body="Post one and it appears here for freelancers to apply to."
+          action={composing ? undefined : <Button onClick={() => setComposing(true)}>Post a job</Button>}
+        />
       ) : (
         <div className="flex flex-col gap-2">
           {jobs.map((job) => (
-            <Link key={job.jobId} href={`/jobs/${job.jobId}`} className="group">
-              <Card className="px-5 py-4 transition group-hover:border-foreground/25">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{job.title}</p>
-                    <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-muted-foreground">
-                      {job.description}
-                    </p>
-                    <p className="mt-2 flex flex-wrap items-center gap-x-2 text-[12px] text-muted-foreground">
-                      <span>{getChain(job.chainKey)?.shortName ?? job.chainKey}</span>
-                      {job.deadline && (
-                        <>
-                          <span aria-hidden>·</span>
-                          <span>Due {formatTimestamp(job.deadline)}</span>
-                        </>
-                      )}
-                      {typeof job.applicationCount === 'number' && (
-                        <>
-                          <span aria-hidden>·</span>
-                          <span>
-                            {job.applicationCount} applicant{job.applicationCount === 1 ? '' : 's'}
-                          </span>
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <p className="vt-numeric shrink-0 text-sm font-semibold">
-                    {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
-                  </p>
-                </div>
-              </Card>
-            </Link>
+            <JobRow key={job.jobId} job={job} />
           ))}
         </div>
       )}
     </AppShell>
+  )
+}
+
+/*
+  One job on the board.
+
+  The budget is the thing somebody is scanning for, so it is set as a figure rather than a line of
+  body text and given the right-hand column to itself; everything about where and when sits under
+  the title as tracked meta. The whole row is one link, and the accent rule down its left edge is
+  what moves on hover — a lighter gesture than lifting a card, which matters in a list.
+*/
+function JobRow({ job }: { job: Job }) {
+  return (
+    <Link href={`/jobs/${job.jobId}`} className="group block">
+      <Card className="relative overflow-hidden px-5 py-4 transition group-hover:border-white/20">
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-[2px] origin-top scale-y-0 transition-transform duration-200 group-hover:scale-y-100"
+          style={{ background: 'var(--vt-accent)' }}
+        />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[14.5px] font-medium">{job.title}</p>
+            <p className="mt-1.5 line-clamp-2 text-[12.5px] leading-relaxed text-muted-foreground">
+              {job.description}
+            </p>
+            <p className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+              <span>{getChain(job.chainKey)?.shortName ?? job.chainKey}</span>
+              {job.deadline && (
+                <span className="inline-flex items-center gap-2.5">
+                  <span aria-hidden className="opacity-40">/</span>
+                  Due {formatTimestamp(job.deadline)}
+                </span>
+              )}
+              {typeof job.applicationCount === 'number' && (
+                <span className="inline-flex items-center gap-2.5">
+                  <span aria-hidden className="opacity-40">/</span>
+                  {job.applicationCount} applicant{job.applicationCount === 1 ? '' : 's'}
+                </span>
+              )}
+            </p>
+          </div>
+          <p className="vt-numeric vt-editorial shrink-0 text-[19px] leading-none">
+            {formatAmount(job.budgetAmount, job.token.decimals)}
+            <span className="ml-1.5 text-[0.58em] uppercase tracking-[0.12em] text-muted-foreground">
+              {job.token.symbol}
+            </span>
+          </p>
+        </div>
+      </Card>
+    </Link>
   )
 }
 
@@ -265,7 +302,7 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
   return (
     <Card className="p-7">
       <Eyebrow>New job</Eyebrow>
-      <h2 className="vt-display mt-2 text-xl">Post work with a budget</h2>
+      <h2 className="vt-editorial mt-3 text-[26px] uppercase">Post work with a budget</h2>
       <p className="mt-1.5 text-sm text-muted-foreground">
         Posting is a signature, not a payment. You fund the budget once you accept an applicant —
         into escrow where the network has one, and by direct payment where it does not.
@@ -291,9 +328,9 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
                 { key: 'token' as const, label: chain.token?.symbol ?? 'USDC' },
                 { key: 'native' as const, label: chain.viemChain?.nativeCurrency.symbol ?? 'ETH' },
               ]).map((option) => (
-                <button
+                <Chip
                   key={option.key}
-                  type="button"
+                  selected={budgetAsset === option.key}
                   disabled={busy}
                   onClick={() => {
                     setBudgetAsset(option.key)
@@ -301,14 +338,9 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
                     // amount here.
                     setBudget('')
                   }}
-                  className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
-                    budgetAsset === option.key
-                      ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
-                      : 'border-border hover:bg-muted'
-                  }`}
                 >
                   {option.label}
-                </button>
+                </Chip>
               ))}
             </div>
           </Field>
@@ -331,17 +363,14 @@ function PostJob({ onPosted }: { onPosted: () => void }) {
           <Field label="Protection window" hint="Applied to the escrow once it is funded.">
             <div className="flex flex-wrap gap-2">
               {PROTECTION_PERIOD_PRESETS.map((preset) => (
-                <button
+                <Chip
                   key={preset.seconds}
-                  type="button"
+                  selected={protectionPeriod === preset.seconds}
                   disabled={busy}
                   onClick={() => setProtectionPeriod(preset.seconds)}
-                  className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
-                    protectionPeriod === preset.seconds ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]' : 'border-border hover:bg-muted'
-                  }`}
                 >
                   {preset.label}
-                </button>
+                </Chip>
               ))}
             </div>
           </Field>
@@ -459,7 +488,16 @@ export function JobDetail({ jobId }: { jobId: string }) {
   if (!job) {
     return (
       <AppShell>
-        <Notice tone="warn">No such job.</Notice>
+        <EmptyState
+          icon={<Briefcase size={22} />}
+          title="No such job"
+          body="This job does not exist, or it was taken down after the link was shared."
+          action={
+            <Link href="/jobs">
+              <Button variant="secondary">Back to the board</Button>
+            </Link>
+          }
+        />
       </AppShell>
     )
   }
@@ -472,123 +510,149 @@ export function JobDetail({ jobId }: { jobId: string }) {
         <ArrowLeft size={14} /> All jobs
       </Link>
 
-      <Card className="p-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <Eyebrow>Job</Eyebrow>
-            <h1 className="vt-display mt-2 text-2xl">{job.title}</h1>
-            <p className="vt-numeric mt-1 text-lg text-muted-foreground">
-              {formatAmount(job.budgetAmount, job.token.decimals)} {job.token.symbol}
-            </p>
+      {/*
+        The job as a posting: what it is, then what it pays, then its terms. The budget is set at
+        the size of the escrow amount on a request's own page, because it is the same number and
+        somebody deciding whether to apply is reading for it.
+      */}
+      <Card className="relative overflow-hidden p-7 sm:p-9">
+        <div className="vt-grid-fine pointer-events-none absolute inset-0 opacity-30" aria-hidden />
+        <div className="relative">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <Eyebrow>Job</Eyebrow>
+              <h1 className="vt-editorial mt-4 text-[clamp(1.7rem,3.4vw,2.4rem)] uppercase">{job.title}</h1>
+            </div>
+            <span className="rounded-full border border-white/12 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+              {job.status}
+            </span>
           </div>
-          <span className="vt-eyebrow rounded-full bg-muted px-2.5 py-1 text-muted-foreground">{job.status}</span>
-        </div>
 
-        <p className="mt-5 whitespace-pre-wrap text-[14px] leading-relaxed">{job.description}</p>
+          <p className="vt-numeric vt-editorial mt-6 text-[clamp(2.2rem,5.6vw,3.4rem)] leading-none">
+            {formatAmount(job.budgetAmount, job.token.decimals)}
+            <span className="ml-3 text-[0.3em] uppercase tracking-[0.12em] text-muted-foreground">
+              {job.token.symbol}
+            </span>
+          </p>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <Fact label="Network" value={chain?.name ?? job.chainKey} />
-          <Fact label="Client" value={<AddressChip address={job.clientAddress} chain={chain?.viemChain ?? null} />} />
-          <Fact label="Deadline" value={job.deadline ? formatTimestamp(job.deadline) : 'None'} />
-          <Fact label="Assigned to" value={job.assignedTo ? shortAddress(job.assignedTo, 6) : 'Nobody yet'} />
-        </div>
+          <p className="mt-7 max-w-2xl whitespace-pre-wrap text-[14px] leading-relaxed">{job.description}</p>
 
-        {/*
-          Payment state is a chain fact. Until the escrow for this job exists, the page says the
-          budget is not secured rather than implying it is.
-        */}
-        <div className="mt-5">
-          {!escrowCapable ? (
-            <JobDirectPayment job={job} payment={payment} isClient={isClient} />
-          ) : job.status === 'ASSIGNED' &&
-          !job.invoiceId &&
-          address &&
-          job.assignedTo?.toLowerCase() === address.toLowerCase() ? (
-            <Notice tone="neutral" title="You were hired — secure the budget">
-              Nothing is locked yet. Raising the escrow takes one signature and one transaction;
-              the client then funds it before you start.{' '}
-              <Link href={`/request?job=${job.jobId}`} className="underline">
-                Secure the budget
-              </Link>
-            </Notice>
-          ) : job.invoiceId ? (
-            <Notice tone="good" icon={<ShieldCheck size={15} />}>
-              An escrow exists for this job.{' '}
-              <Link href={`/requests/${job.invoiceId}`} className="underline">
-                Open it
-              </Link>{' '}
-              to see its live state.
-              {isClient && (
-                <>
-                  {' '}
-                  If it is still awaiting funding,{' '}
-                  <Link href={`/pay/${job.invoiceId}`} className="underline">
-                    fund the budget
-                  </Link>{' '}
-                  to lock it in.
-                </>
-              )}
-            </Notice>
-          ) : (
-            <Notice tone="warn" icon={<Clock size={15} />}>
-              No escrow has been created for this job yet, so the budget is not secured. The
-              contract makes the person being paid the escrow's creator, so the freelancer raises it
-              once hired and the client funds it.
-            </Notice>
-          )}
-        </div>
+          <div className="mt-7 grid gap-2.5 sm:grid-cols-2">
+            <Fact label="Network" value={chain?.name ?? job.chainKey} />
+            <Fact label="Client" value={<AddressChip address={job.clientAddress} chain={chain?.viemChain ?? null} />} />
+            <Fact label="Deadline" value={job.deadline ? formatTimestamp(job.deadline) : 'None'} />
+            <Fact label="Assigned to" value={job.assignedTo ? shortAddress(job.assignedTo, 6) : 'Nobody yet'} />
+          </div>
 
-
-        {error && <div className="mt-4"><Notice tone="danger">{error}</Notice></div>}
-
-        {job.status === 'OPEN' && !isClient && (
-          <div className="mt-6">
-            <Divider className="mb-6" />
-            <Eyebrow>Apply</Eyebrow>
-            {alreadyApplied ? (
-              <p className="mt-2 text-[13.5px] text-muted-foreground">You have already applied to this job.</p>
-            ) : !isConnected ? (
-              <div className="mt-3">
-                <SignInButton full label="Sign in to apply" />
-              </div>
+          {/*
+            Payment state is a chain fact. Until the escrow for this job exists, the page says the
+            budget is not secured rather than implying it is.
+          */}
+          <div className="mt-5">
+            {!escrowCapable ? (
+              <JobDirectPayment job={job} payment={payment} isClient={isClient} />
+            ) : job.status === 'ASSIGNED' &&
+            !job.invoiceId &&
+            address &&
+            job.assignedTo?.toLowerCase() === address.toLowerCase() ? (
+              <Notice tone="neutral" title="You were hired — secure the budget">
+                Nothing is locked yet. Raising the escrow takes one signature and one transaction;
+                the client then funds it before you start.{' '}
+                <Link href={`/request?job=${job.jobId}`} className="underline">
+                  Secure the budget
+                </Link>
+              </Notice>
+            ) : job.invoiceId ? (
+              <Notice tone="good" icon={<ShieldCheck size={15} />}>
+                An escrow exists for this job.{' '}
+                <Link href={`/requests/${job.invoiceId}`} className="underline">
+                  Open it
+                </Link>{' '}
+                to see its live state.
+                {isClient && (
+                  <>
+                    {' '}
+                    If it is still awaiting funding,{' '}
+                    <Link href={`/pay/${job.invoiceId}`} className="underline">
+                      fund the budget
+                    </Link>{' '}
+                    to lock it in.
+                  </>
+                )}
+              </Notice>
             ) : (
-              <div className="mt-3 flex flex-col gap-3">
-                <textarea
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  rows={3}
-                  maxLength={1500}
-                  placeholder="Why you, and how you would approach it."
-                  className={inputClass}
-                  disabled={busy}
-                />
-                <Button full busy={busy} disabled={!message.trim()} onClick={apply}>
-                  Submit application
-                </Button>
-              </div>
+              /*
+                Left over from the v1 contract, which could only ever make the payee an escrow's
+                creator. v2 added `createEscrowFor`, so the client raises it naming the freelancer —
+                which is the whole reason a freelancer with an empty wallet can now be hired. The
+                old wording described a restriction that no longer exists, on the one screen a
+                freelancer reads before deciding whether to apply.
+              */
+              <Notice tone="warn" icon={<Clock size={15} />}>
+                No escrow has been created for this job yet, so the budget is not secured. Once
+                somebody is hired, either side can raise it — and the client funds it before the
+                work starts.
+              </Notice>
             )}
           </div>
-        )}
+
+
+          {error && <div className="mt-4"><Notice tone="danger">{error}</Notice></div>}
+
+          {job.status === 'OPEN' && !isClient && (
+            <div className="mt-6">
+              <Divider className="mb-6" />
+              <Eyebrow>Apply</Eyebrow>
+              {alreadyApplied ? (
+                <p className="mt-2 text-[13.5px] text-muted-foreground">You have already applied to this job.</p>
+              ) : !isConnected ? (
+                <div className="mt-3">
+                  <SignInButton full label="Sign in to apply" />
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-col gap-3">
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    rows={3}
+                    maxLength={1500}
+                    placeholder="Why you, and how you would approach it."
+                    className={inputClass}
+                    disabled={busy}
+                  />
+                  <Button full busy={busy} disabled={!message.trim()} onClick={apply}>
+                    Submit application
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </Card>
 
       {isClient && (
         <Card className="mt-5 p-7">
-          <Eyebrow>Applicants ({applications.length})</Eyebrow>
+          <div className="flex items-baseline justify-between gap-3">
+            <Eyebrow>Applicants</Eyebrow>
+            <span className="vt-numeric text-[13px] text-muted-foreground">{applications.length}</span>
+          </div>
           {applications.length === 0 ? (
-            <p className="mt-3 text-[13.5px] text-muted-foreground">Nobody has applied yet.</p>
+            <p className="mt-4 text-[13.5px] text-muted-foreground">Nobody has applied yet.</p>
           ) : (
-            <div className="mt-4 flex flex-col gap-3">
+            <div className="mt-5 flex flex-col gap-2.5">
               {applications.map((application) => (
-                <div key={application.id} className="rounded-xl border border-border p-4">
-                  <div className="flex items-center justify-between gap-3">
+                <div key={application.id} className="rounded-xl border border-white/8 bg-black/25 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <AddressChip address={application.applicantAddress} chain={chain?.viemChain ?? null} size={5} />
-                    <span className="vt-eyebrow text-muted-foreground">{application.status}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                      {application.status}
+                    </span>
                   </div>
-                  <p className="mt-2 whitespace-pre-wrap text-[13.5px] leading-relaxed">{application.message}</p>
+                  <p className="mt-3 whitespace-pre-wrap text-[13.5px] leading-relaxed">{application.message}</p>
                   {job.status === 'OPEN' && (
                     <Button
                       variant="secondary"
-                      className="mt-3"
+                      className="mt-4"
                       busy={busy}
                       onClick={() => accept(application.applicantAddress)}
                     >
@@ -601,11 +665,21 @@ export function JobDetail({ jobId }: { jobId: string }) {
             </div>
           )}
           {job.status === 'ASSIGNED' && (
-            <Notice tone="neutral" title="Next step">
-              Accepting an applicant moves no funds. {shortAddress(job.assignedTo, 6)} raises the
-              escrow — the contract only lets the person being paid create it — and you will be
-              notified to fund it. Nothing is secured until you do.
-            </Notice>
+            /*
+              Same v1 leftover as the notice above, and worse here: it told the client to wait for
+              somebody else to do the thing they can do themselves, from the link in this very
+              notice. Nothing about the flow changed — only the sentence describing it.
+            */
+            <div className="mt-5">
+              <Notice tone="neutral" title="Next step">
+                Accepting an applicant moves no funds. Secure the budget for{' '}
+                {shortAddress(job.assignedTo, 6)} and fund it — nothing is protected for either side
+                until you do.{' '}
+                <Link href={`/request?job=${job.jobId}`} className="underline">
+                  Secure the budget
+                </Link>
+              </Notice>
+            </div>
           )}
         </Card>
       )}
@@ -685,11 +759,12 @@ function JobDirectPayment({
   )
 }
 
+/** One term of the posting, as a labelled cell rather than a run-on line. */
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-muted px-4 py-3">
-      <p className="vt-eyebrow text-muted-foreground">{label}</p>
-      <p className="mt-1 text-[13.5px] font-medium">{value}</p>
+    <div className="rounded-xl border border-white/8 bg-black/25 px-4 py-3.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{label}</p>
+      <div className="mt-2 text-[13.5px] font-medium">{value}</div>
     </div>
   )
 }

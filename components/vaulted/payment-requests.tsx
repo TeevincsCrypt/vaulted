@@ -13,7 +13,9 @@ import {
   Divider,
   Eyebrow,
   Field,
+  EmptyState,
   Notice,
+  PageHeader,
   Skeleton,
   inputClass,
 } from './primitives'
@@ -126,7 +128,7 @@ export function PaymentRequests() {
   if (signedOut) {
     return (
       <AppShell>
-        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Payment requests</h1>
+        <PageHeader eyebrow="Direct" title="Payment requests" />
         <div className="mt-8 max-w-sm">
           <SignInButton size="lg" full label="Sign in to request a payment" />
         </div>
@@ -136,19 +138,17 @@ export function PaymentRequests() {
 
   return (
     <AppShell>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Payment requests</h1>
-          <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-            Ask to be paid, share the link, and the money arrives in your wallet directly. No escrow
-            and no contract — which is why these settle on Base and Solana today.
-          </p>
-        </div>
-        <Button variant="secondary" busy={refreshing} onClick={refresh}>
-          <RefreshCw size={15} />
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Direct"
+        title="Payment requests"
+        body="Ask to be paid, share the link, and the money arrives in your wallet directly. No escrow and no contract — which is why these settle on Base and Solana today."
+        actions={
+          <Button variant="secondary" busy={refreshing} onClick={refresh}>
+            <RefreshCw size={15} />
+            Refresh
+          </Button>
+        }
+      />
 
       {error && (
         <div className="mt-6">
@@ -177,14 +177,11 @@ export function PaymentRequests() {
               <Skeleton className="h-32" />
             </>
           ) : requests.length === 0 ? (
-            <Card className="p-8 text-center">
-              <Link2 size={20} className="mx-auto text-muted-foreground" />
-              <p className="mt-3 text-[14px] font-medium">No payment requests yet</p>
-              <p className="mx-auto mt-1.5 max-w-xs text-[13px] leading-relaxed text-muted-foreground">
-                Raise one and you get a link to send. Anyone can open it and pay, with or without a
-                Vaulted account.
-              </p>
-            </Card>
+            <EmptyState
+              icon={<Link2 size={22} />}
+              title="No payment requests yet"
+              body="Raise one and you get a link to send. Anyone can open it and pay, with or without a Vaulted account."
+            />
           ) : (
             requests.map((request) => (
               <RequestRow key={request.id} request={request} onChanged={load} />
@@ -261,7 +258,7 @@ function CreateForm({ networks, onCreated }: { networks: Network[]; onCreated: (
   return (
     <Card className="p-7">
       <Eyebrow>New request</Eyebrow>
-      <h2 className="vt-display mt-2 text-lg">Ask to be paid</h2>
+      <h2 className="vt-editorial mt-3 text-[21px] uppercase">Ask to be paid</h2>
 
       <Divider className="my-5" />
 
@@ -271,18 +268,31 @@ function CreateForm({ networks, onCreated }: { networks: Network[]; onCreated: (
             {networks.map((entry) => {
               const active = entry.key === network
               return (
+                /*
+                  Not a Chip: a network carries a second line saying what it settles in, which is
+                  the thing that makes the choice. Same inset surface and same accent-on-selected as
+                  every other choice in the product, at the size the extra line needs.
+                */
                 <button
                   key={entry.key}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => setNetwork(entry.key)}
-                  className="rounded-xl border px-4 py-3 text-left transition"
-                  style={{
-                    borderColor: active ? 'var(--vt-accent)' : 'var(--border)',
-                    background: active ? 'var(--vt-accent-dim)' : 'transparent',
-                  }}
+                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                    active
+                      ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)]'
+                      : 'border-white/8 bg-black/25 hover:border-white/20'
+                  }`}
                 >
-                  <span className="block text-[13.5px] font-medium">{entry.shortName}</span>
-                  <span className="mt-0.5 block text-[11.5px] text-muted-foreground">{entry.symbol}</span>
+                  <span
+                    className="block text-[13.5px] font-medium"
+                    style={active ? { color: 'var(--vt-accent)' } : undefined}
+                  >
+                    {entry.shortName}
+                  </span>
+                  <span className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                    {entry.symbol}
+                  </span>
                 </button>
               )
             })}
@@ -408,7 +418,7 @@ function RequestRow({ request, onChanged }: { request: PaymentRequest; onChanged
       </div>
 
       {request.status === 'PAID' && (
-        <div className="mt-4 rounded-xl border border-border px-4 py-3">
+        <div className="mt-4 rounded-xl border border-white/8 bg-black/25 px-4 py-3">
           <p className="text-[12.5px] text-muted-foreground">
             Paid {request.paidAt ? formatTimestamp(Math.floor(new Date(request.paidAt).getTime() / 1000)) : ''}
             {request.paidAmount && request.paidAmount !== request.amount && (
@@ -439,7 +449,7 @@ function RequestRow({ request, onChanged }: { request: PaymentRequest; onChanged
         <CopyButton value={linkFor(request.id)} label="Copy link" />
         <Link
           href={`/pay/${request.id}`}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-full border border-white/12 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:border-white/25 hover:bg-white/[0.05] hover:text-foreground"
         >
           Open <ExternalLink size={12} />
         </Link>

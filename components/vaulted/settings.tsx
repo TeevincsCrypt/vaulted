@@ -6,7 +6,7 @@ import { useAccount } from 'wagmi'
 import { readableError } from '@/lib/vaulted/client'
 import { getChain } from '@/lib/vaulted/registry'
 import { useVaultedAuth } from './auth-provider'
-import { AddressChip, Button, Card, Divider, Eyebrow, Notice } from './primitives'
+import { AddressChip, Button, Card, Divider, Eyebrow, Notice, PageHeader } from './primitives'
 import { useSession } from './session-provider'
 import { AppShell } from './shell'
 import { SignInButton } from './wallet'
@@ -49,11 +49,17 @@ export function Settings() {
 
   return (
     <AppShell>
-      <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Your wallet</h1>
-      <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-        Every Vaulted account gets a wallet on each network it supports, assigned when you sign in.
-        People pay <span className="text-foreground">@{account?.name}</span> and it lands here.
-      </p>
+      <PageHeader
+        eyebrow="Account"
+        title="Your wallet"
+        body={
+          <>
+            Every Vaulted account gets a wallet on each network it supports, assigned when you sign
+            in. People pay <span className="text-foreground">@{account?.name}</span> and it lands
+            here.
+          </>
+        }
+      />
 
       <div className="mt-8 grid items-start gap-5 lg:grid-cols-2">
         <Card className="p-7">
@@ -77,7 +83,7 @@ export function Settings() {
                 return (
                   <li
                     key={`${wallet.chainKey}:${wallet.address}`}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3"
+                    className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/25 px-4 py-3"
                   >
                     <span className="min-w-0">
                       <span className="block text-[13px] font-medium">
@@ -118,7 +124,7 @@ export function Settings() {
 
         <Card className="p-7">
           <Eyebrow>Custody</Eyebrow>
-          <h2 className="vt-display mt-2 text-lg">Who can move the money</h2>
+          <h2 className="vt-editorial mt-3 text-[21px] uppercase">Who can move the money</h2>
           <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
             The wallet&rsquo;s key is split by Privy between a secure enclave and your device, and a
             transaction is only signed when you approve it. Vaulted holds no share of that key and

@@ -57,7 +57,7 @@ export function ChainSelector({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 text-left text-sm transition hover:bg-muted"
+        className="flex h-11 w-full items-center justify-between gap-3 rounded-full border border-white/12 bg-white/[0.03] px-4 text-left text-[13.5px] transition hover:border-white/25 hover:bg-white/[0.06]"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
@@ -74,7 +74,7 @@ export function ChainSelector({
       {open && (
         <div
           role="listbox"
-          className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+          className="vt-panel absolute left-0 right-0 z-50 mt-2 overflow-hidden bg-[#101014] shadow-2xl"
         >
           <Group label="Available">
             {live.length === 0 && (
@@ -113,7 +113,7 @@ export function ChainSelector({
 
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div className="border-b border-white/8 last:border-b-0">
       <p className="vt-eyebrow px-3.5 pb-1.5 pt-3 text-muted-foreground">{label}</p>
       <div className="pb-1.5">{children}</div>
     </div>
@@ -143,7 +143,7 @@ function Row({
       onClick={onSelect}
       title={!live ? (chain.note ?? 'Not available yet') : undefined}
       className={`flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition ${
-        live ? 'hover:bg-muted' : 'cursor-not-allowed opacity-55'
+        live ? 'hover:bg-white/[0.05]' : 'cursor-not-allowed opacity-55'
       }`}
     >
       <Dot live={live} />

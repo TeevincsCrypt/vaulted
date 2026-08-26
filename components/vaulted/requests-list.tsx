@@ -8,7 +8,7 @@ import type { VaultedConfig } from '@/lib/vaulted/config'
 import { formatAmount, formatTimestamp } from '@/lib/vaulted/format'
 import type { DisplayStatus } from '@/lib/vaulted/status'
 import type { SerialisedInvoice } from '@/lib/vaulted/types'
-import { Button, Card, Eyebrow, Skeleton, StatusPill } from './primitives'
+import { Button, Card, EmptyState, Eyebrow, Skeleton, StatusPill } from './primitives'
 
 /**
  * The freelancer's payment requests.
@@ -56,13 +56,11 @@ export function RequestsList({ config, refreshKey }: { config: VaultedConfig; re
 
   if (!isConnected) {
     return (
-      <Card className="flex flex-col items-center gap-2 px-7 py-12 text-center">
-        <Inbox size={20} className="text-muted-foreground" />
-        <p className="text-sm font-medium">Connect your wallet</p>
-        <p className="max-w-xs text-[13px] text-muted-foreground">
-          Your payment requests are listed against the wallet that created them.
-        </p>
-      </Card>
+      <EmptyState
+        icon={<Inbox size={22} />}
+        title="Connect your wallet"
+        body="Your payment requests are listed against the wallet that created them."
+      />
     )
   }
 
@@ -70,8 +68,8 @@ export function RequestsList({ config, refreshKey }: { config: VaultedConfig; re
     <div>
       <div className="mb-3 flex items-center justify-between">
         <Eyebrow>Your payment requests</Eyebrow>
-        <Button variant="ghost" busy={syncing} onClick={syncAll} className="h-8 px-2 text-xs">
-          {!syncing && <RefreshCw size={13} />}
+        <Button variant="ghost" busy={syncing} onClick={syncAll}>
+          {!syncing && <RefreshCw size={14} />}
           Refresh from chain
         </Button>
       </div>
@@ -82,13 +80,11 @@ export function RequestsList({ config, refreshKey }: { config: VaultedConfig; re
           <Skeleton className="h-[68px] w-full" />
         </div>
       ) : invoices.length === 0 ? (
-        <Card className="flex flex-col items-center gap-2 px-7 py-12 text-center">
-          <Inbox size={20} className="text-muted-foreground" />
-          <p className="text-sm font-medium">No payment requests yet</p>
-          <p className="max-w-xs text-[13px] text-muted-foreground">
-            Create one and share the link. Nothing appears here until an escrow exists.
-          </p>
-        </Card>
+        <EmptyState
+          icon={<Inbox size={22} />}
+          title="No payment requests yet"
+          body="Create one and share the link. Nothing appears here until an escrow exists."
+        />
       ) : (
         <div className="flex flex-col gap-2">
           {invoices.map((invoice) => (

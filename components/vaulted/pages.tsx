@@ -12,6 +12,7 @@ import { DashboardOverview } from './dashboard-overview'
 import { PayExperience } from './pay-experience'
 import { RequestDetail } from './request-detail'
 import { RequestsList } from './requests-list'
+import { Button, PageHeader } from './primitives'
 import { AppShell, EscrowUnavailable, NotConfigured } from './shell'
 
 /**
@@ -34,7 +35,7 @@ export function Workspace() {
   if (!config) {
     return (
       <AppShell>
-        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Your vaults</h1>
+        <PageHeader eyebrow="Escrow" title="Your vaults" />
         <div className="mt-8">
           <EscrowUnavailable what="The escrow dashboard" message={unavailableMessage()} />
         </div>
@@ -44,27 +45,24 @@ export function Workspace() {
 
   return (
     <AppShell>
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Your vaults</h1>
-          <p className="mt-2 max-w-lg text-[15px] leading-relaxed text-muted-foreground">
-            Escrow state is read from the chain, not from our database. Anything we could not read is
-            marked rather than guessed.
-          </p>
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-end">
-          <div className="w-full sm:w-[220px]">
-            <p className="vt-eyebrow mb-1.5 text-muted-foreground">Network</p>
-            <ChainSelector value={activeChainKey} onChange={setActiveChainKey} />
-          </div>
-          <Link
-            href="/request"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl px-5 text-[14px] font-semibold text-[#08080a]"
-            style={{ background: 'var(--vt-accent)' }}
-          >
-            <Plus size={16} /> Request payment
-          </Link>
-        </div>
+      <div className="mb-8">
+        <PageHeader
+          eyebrow="Escrow"
+          title="Your vaults"
+          body="Escrow state is read from the chain, not from our database. Anything we could not read is marked rather than guessed."
+          actions={
+            <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row sm:items-center">
+              <div className="w-full sm:w-[210px]">
+                <ChainSelector value={activeChainKey} onChange={setActiveChainKey} />
+              </div>
+              <Link href="/request" className="shrink-0">
+                <Button full>
+                  <Plus size={16} /> Request payment
+                </Button>
+              </Link>
+            </div>
+          }
+        />
       </div>
 
       <div className="mb-10">

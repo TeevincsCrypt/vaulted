@@ -27,6 +27,7 @@ import {
   Eyebrow,
   Notice,
   Skeleton,
+  StateTrack,
   StatusPill,
   TxHashLink,
 } from './primitives'
@@ -83,6 +84,39 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
   const expectedDetailsHash = computeDetailsHash(termsOf(invoice))
   const termsMatch = escrow ? escrow.detailsHash.toLowerCase() === expectedDetailsHash.toLowerCase() : null
 
+  /*
+    The escrow's position along its own lifecycle, derived from the live contract state — never from
+    the cached row, which is only ever advisory.
+
+    "Protected" and "Settled" are one step apart on purpose: a funded escrow inside its window and a
+    funded escrow past it are the same contract state but completely different situations for the
+    person reading this, and the track is the only thing on the page that distinguishes them.
+
+    An escrow that ended somewhere other than release keeps its position and relabels the last step,
+    so a refund does not quietly render as though it had paid out.
+  */
+  const state = escrow?.state ?? EscrowState.None
+  const trackPosition =
+    state === EscrowState.None
+      ? -1
+      : state === EscrowState.Created
+        ? 0
+        : state === EscrowState.Funded || state === EscrowState.Disputed
+          ? escrow?.isExpired
+            ? 2
+            : 1
+          : 3
+  const terminalStep =
+    state === EscrowState.Refunded
+      ? ({ label: 'Refunded', tone: 'warn' } as const)
+      : state === EscrowState.Cancelled
+        ? ({ label: 'Cancelled', tone: 'warn' } as const)
+        : state === EscrowState.Resolved
+          ? ({ label: 'Resolved', tone: 'warn' } as const)
+          : state === EscrowState.Disputed
+            ? ({ label: 'Disputed', tone: 'danger' } as const)
+            : null
+
   return (
     <div className="flex flex-col gap-5">
       <Link
@@ -92,30 +126,53 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
         <ArrowLeft size={14} /> All payment requests
       </Link>
 
-      <Card className="p-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <Eyebrow>Payment request</Eyebrow>
-            <h1 className="vt-display mt-2 text-2xl">{invoice.description}</h1>
-            <p className="vt-numeric mt-1 text-lg text-muted-foreground">
-              {formatAmount(invoice.amount, invoice.token.decimals)} {invoice.token.symbol}
-            </p>
+      {/*
+        The escrow as a financial instrument: what it is for, then the amount at the size the amount
+        deserves, then where it is in its life. Somebody arriving here wants those three facts in
+        that order, and everything else is reference.
+      */}
+      <Card className="relative overflow-hidden p-7 sm:p-9">
+        <div className="vt-grid-fine pointer-events-none absolute inset-0 opacity-30" aria-hidden />
+        <div className="relative">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <Eyebrow>Payment request</Eyebrow>
+              <h1 className="mt-4 text-[19px] font-medium leading-snug">{invoice.description}</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              {escrow && <StatusPill status={escrow.status} />}
+              <Button variant="ghost" className="h-8 px-2 text-xs" onClick={() => void refetch()}>
+                <RefreshCw size={13} />
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {escrow && <StatusPill status={escrow.status} />}
-            <Button variant="ghost" className="h-8 px-2 text-xs" onClick={() => void refetch()}>
-              <RefreshCw size={13} />
-            </Button>
+
+          <p className="vt-numeric vt-editorial mt-6 text-[clamp(2.6rem,7vw,4.2rem)] leading-none">
+            {formatAmount(invoice.amount, invoice.token.decimals)}
+            <span className="ml-3 text-[0.3em] uppercase tracking-[0.12em] text-muted-foreground">
+              {invoice.token.symbol}
+            </span>
+          </p>
+
+          {/* Where this escrow is out of where it can go, read from the live chain state. */}
+          <div className="mt-8">
+            <StateTrack
+              steps={['Created', 'Funded', 'Protected', 'Settled']}
+              current={trackPosition}
+              terminal={terminalStep}
+            />
           </div>
         </div>
+      </Card>
 
-        <div className="mt-5 flex items-center gap-2 rounded-xl border border-border bg-muted px-3.5 py-2.5">
+      <Card className="p-7">
+        <div className="flex items-center gap-2 rounded-xl border border-white/8 bg-black/25 px-3.5 py-2.5">
           <Link2 size={14} className="shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{shareUrl || '…'}</span>
           {shareUrl && <CopyButton value={shareUrl} label="Copy" />}
         </div>
 
-        <div className="mt-5">
+        <div className="mt-6">
           {isLoading && !read ? (
             <Skeleton className="h-16 w-full" />
           ) : readError && !read ? (
@@ -157,7 +214,7 @@ export function RequestDetail({ invoice, config }: { invoice: SerialisedInvoice;
             <div className="flex items-center justify-between rounded-xl bg-muted px-4 py-4">
               <div>
                 <p className="vt-eyebrow text-muted-foreground">Settles to you in</p>
-                <p className="vt-numeric vt-display mt-1 text-2xl">{formatCountdown(secondsLeft)}</p>
+                <p className="vt-numeric vt-editorial mt-1.5 text-[26px]">{formatCountdown(secondsLeft)}</p>
               </div>
               <p className="max-w-[190px] text-right text-[12px] leading-relaxed text-muted-foreground">
                 Unless the client releases early or opens a dispute.

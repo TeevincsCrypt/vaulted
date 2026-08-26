@@ -53,9 +53,9 @@ export function Receipt({
         <Card className="overflow-hidden">
           <div className="px-7 pt-7">
             <p className="vt-eyebrow text-muted-foreground">Vaulted receipt</p>
-            <h1 className="vt-display mt-3 text-[22px] leading-tight">{invoice.description}</h1>
+            <h1 className="vt-editorial mt-4 text-[22px] uppercase leading-tight">{invoice.description}</h1>
 
-            <p className="vt-numeric vt-display mt-5 text-[38px] leading-none">
+            <p className="vt-numeric vt-editorial mt-6 text-[clamp(2.2rem,6vw,3rem)] leading-none">
               {formatAmount(invoice.amount, invoice.token.decimals)}
               <span className="ml-2 align-middle text-lg font-medium text-muted-foreground">
                 {invoice.token.symbol}
@@ -97,7 +97,7 @@ export function Receipt({
             )}
           </div>
 
-          <dl className="divide-y divide-border border-t border-border px-7">
+          <dl className="divide-y divide-white/8 border-t border-white/8 px-7">
             <Line label="Client">
               {handles.payer ? `@${handles.payer}` : shortAddress(escrow?.payer ?? invoice.payer, 6)}
             </Line>
@@ -116,7 +116,7 @@ export function Receipt({
             )}
           </dl>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/50 px-7 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/8 bg-black/25 px-7 py-4">
             <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
               <ShieldCheck size={13} style={{ color: 'var(--vt-positive)' }} />
               Verified against the escrow contract
@@ -128,7 +128,7 @@ export function Receipt({
                   href={`${config.chain.blockExplorers.default.url}/tx/${invoice.transactions.settle}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"
                 >
                   <ExternalLink size={13} /> Explorer
                 </a>

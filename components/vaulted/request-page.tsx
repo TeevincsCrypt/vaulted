@@ -73,7 +73,7 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
   if (directPayment) {
     return (
       <AppShell>
-        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">This budget is paid directly</h1>
+        <h1 className="vt-editorial text-[clamp(1.9rem,4vw,2.7rem)] uppercase leading-none">This budget is paid directly</h1>
         <Card className="mt-8 max-w-xl p-7">
           <p className="text-[14px] leading-relaxed text-muted-foreground">
             This job is denominated on a network with no escrow contract, so there is no escrow to
@@ -109,7 +109,7 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
     const resolved = getVaultedConfig()
     return (
       <AppShell>
-        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">Request a payment</h1>
+        <h1 className="vt-editorial text-[clamp(1.9rem,4vw,2.7rem)] uppercase leading-none">Request a payment</h1>
         <div className="mt-8">
           <EscrowUnavailable
             what="An escrowed request"
@@ -123,7 +123,7 @@ export function RequestPaymentPage({ jobId }: { jobId?: string }) {
   return (
     <AppShell>
       <div className="mb-8">
-        <h1 className="vt-display text-3xl leading-tight sm:text-4xl">
+        <h1 className="vt-editorial text-[clamp(1.9rem,4vw,2.7rem)] uppercase leading-none">
           {jobId ? 'Secure the job budget' : 'Request a payment'}
         </h1>
         <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-muted-foreground">

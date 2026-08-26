@@ -6,7 +6,7 @@ import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/sola
 import { readableError } from '@/lib/vaulted/client'
 import { formatAmountExact, parseAmount } from '@/lib/vaulted/format'
 import { base58Encode, isSolanaAddress } from '@/lib/vaulted/solana'
-import { Button, Divider, Eyebrow, Field, Notice, inputClass } from './primitives'
+import { Button, Chip, Divider, Eyebrow, Field, Notice, inputClass } from './primitives'
 
 /**
  * Spending from the Solana wallet Vaulted assigns.
@@ -267,9 +267,9 @@ export function SolanaWithdraw({
               { key: 'token' as const, label: symbol },
               { key: 'native' as const, label: 'SOL' },
             ]).map((option) => (
-              <button
+              <Chip
                 key={option.key}
-                type="button"
+                selected={asset === option.key}
                 disabled={phase !== 'idle'}
                 onClick={() => {
                   setAsset(option.key)
@@ -278,14 +278,9 @@ export function SolanaWithdraw({
                   setAmount('')
                   setError(null)
                 }}
-                className={`rounded-lg border px-3 py-2 text-[13px] transition disabled:opacity-50 ${
-                  asset === option.key
-                    ? 'border-[var(--vt-accent)] bg-[var(--vt-accent-dim)] text-[var(--vt-accent)]'
-                    : 'border-border hover:bg-muted'
-                }`}
               >
                 {option.label}
-              </button>
+              </Chip>
             ))}
           </div>
         </Field>

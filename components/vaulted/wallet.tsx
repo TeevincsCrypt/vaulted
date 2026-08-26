@@ -105,7 +105,7 @@ export function WalletBadge() {
   return (
     <Link
       href="/settings"
-      className="flex items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-1.5 text-[12.5px] transition hover:bg-muted"
+      className="flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.03] px-3 py-1.5 text-[12px] transition hover:border-white/25 hover:bg-white/[0.06]"
       title={shown ?? 'No wallet yet'}
     >
       {walletPending ? (

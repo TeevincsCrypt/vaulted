@@ -121,7 +121,7 @@ export function NotificationBell() {
       <button
         type="button"
         onClick={toggle}
-        className="relative rounded-lg p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className="relative rounded-full p-2 text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"
         aria-label={unread > 0 ? `${unread} unread notifications` : 'Notifications'}
       >
         <Bell size={17} />
@@ -136,14 +136,14 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-[330px] overflow-hidden rounded-xl border border-border bg-popover shadow-2xl">
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+        <div className="vt-panel absolute right-0 z-50 mt-2 w-[330px] overflow-hidden bg-[#101014] shadow-2xl">
+          <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
             <p className="vt-eyebrow text-muted-foreground">Notifications</p>
             <button
               type="button"
               onClick={refresh}
               disabled={refreshing}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground disabled:opacity-50"
             >
               {refreshing ? <Loader2 size={12} className="vt-spin" /> : <RefreshCw size={12} />}
               Refresh
@@ -156,7 +156,7 @@ export function NotificationBell() {
               {items.map((item) => {
                 const Icon = ICON[item.type] ?? Bell
                 const content = (
-                  <span className="flex gap-3 px-4 py-3 transition hover:bg-muted">
+                  <span className="flex gap-3 px-4 py-3.5 transition hover:bg-white/[0.04]">
                     <Icon size={15} className="mt-0.5 shrink-0" style={{ color: 'var(--vt-accent)' }} />
                     <span className="min-w-0">
                       <span className="block text-[13px] font-medium">{item.title}</span>
@@ -168,7 +168,7 @@ export function NotificationBell() {
                   </span>
                 )
                 return (
-                  <li key={item.id} className="border-b border-border last:border-b-0">
+                  <li key={item.id} className="border-b border-white/8 last:border-b-0">
                     {item.href ? (
                       <Link href={item.href} onClick={() => setOpen(false)} className="block">
                         {content}

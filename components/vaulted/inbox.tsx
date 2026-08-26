@@ -8,7 +8,7 @@ import { useEscrow, useVaultedConfig } from '@/lib/vaulted/client'
 import { formatAmount, shortAddress } from '@/lib/vaulted/format'
 import { EscrowState, type DisplayStatus } from '@/lib/vaulted/status'
 import { EscrowActions } from './escrow-actions'
-import { Button, Card, Eyebrow, Notice, Skeleton, StatusPill } from './primitives'
+import { Button, Card, Eyebrow, Notice, PageHeader, Skeleton, StatusPill } from './primitives'
 import { useSession } from './session-provider'
 import { AppShell, EscrowUnavailable } from './shell'
 import { SignInButton } from './wallet'
@@ -82,21 +82,19 @@ export function Inbox() {
 
   return (
     <AppShell>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="vt-display text-3xl leading-tight sm:text-4xl">To pay</h1>
-          <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-            Payment requests addressed to you. Funding one locks the money in the escrow contract;
-            releasing it sends the money to them.
-          </p>
-        </div>
-        {address && (
-          <Button variant="secondary" busy={refreshing} onClick={refresh}>
-            <RefreshCw size={15} />
-            Refresh
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        eyebrow="Client"
+        title="To pay"
+        body="Payment requests addressed to you. Funding one locks the money in the escrow contract; releasing it sends the money to them."
+        actions={
+          address ? (
+            <Button variant="secondary" busy={refreshing} onClick={refresh}>
+              <RefreshCw size={15} />
+              Refresh
+            </Button>
+          ) : undefined
+        }
+      />
 
       {!address ? (
         <div className="mt-8 max-w-sm">
