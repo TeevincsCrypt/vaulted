@@ -315,7 +315,9 @@ export async function notifyPaymentReceived(input: {
         type: 'PAYMENT_RECEIVED',
         title: 'Payment received',
         body: `${amount} arrived${from} on ${input.networkName}${input.description ? ` — ${input.description}` : ''}`,
-        href: `/requests`,
+        // Where the request itself lives. `/requests` is not a page — only `/requests/{id}` is —
+        // so the notification about being paid used to lead to a 404.
+        href: '/payment-requests',
       },
     ])
   } catch (error) {

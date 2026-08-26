@@ -255,3 +255,221 @@ button {
 .vt-flow-pulse {
   animation: vt-flow 2.4s ease-in-out infinite;
 }
+
+/* ===========================================================================
+   Marketing editorial system
+   ---------------------------------------------------------------------------
+   Everything below is for the marketing surface only. It is scoped under
+   `.vt-dark` (the landing page root) or `.vt-light` (a light section within
+   it), so none of it reaches the product UI — the payment screens keep the
+   palette and density they were designed with, which is deliberate: a page
+   selling the product and a page moving somebody's money should not be forced
+   to look the same.
+
+   The system is built on a rhythm of alternating dark and light bands, with the
+   light ones sitting *on* the dark as inset rounded slabs. That transition does
+   most of the structural work, so individual pieces of content need far fewer
+   card borders to feel organised.
+=========================================================================== */
+
+/* --------------------------------------------------------------- typography */
+
+/*
+  Display face, used only for headlines. Body text keeps the system stack, so
+  the product and the marketing page still render running text identically and
+  nothing has to be re-checked for legibility.
+*/
+.vt-editorial {
+  font-family: var(--font-display), ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 0.92;
+  text-wrap: balance;
+}
+
+/*
+  The one true display size.
+
+  Capped well below what the viewport would allow: at full width the headline ran under the vault
+  and filled the fold on its own, leaving the buttons below it unreachable without scrolling. A
+  headline that dominates the view is the point; one that is the only thing in it is a failure.
+*/
+.vt-display-xl {
+  font-size: clamp(2.7rem, 8.4vw, 7.4rem);
+}
+
+.vt-display-lg {
+  font-size: clamp(2.4rem, 7.4vw, 5.6rem);
+}
+
+.vt-display-md {
+  font-size: clamp(1.9rem, 4.6vw, 3.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+}
+
+/* A clause the eye should pass over on the way to the point. */
+.vt-dim {
+  color: var(--vt-muted-ink, rgba(255, 255, 255, 0.34));
+}
+
+/* Eyebrow with the marker dot the reference uses to anchor a section. */
+.vt-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.vt-marker::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--vt-accent);
+  flex: none;
+}
+
+/* ------------------------------------------------------------- light bands */
+
+/*
+  A light section. Token overrides rather than one-off colours, so the same
+  components render correctly on either band without knowing which they are on.
+*/
+.vt-light {
+  --vt-muted-ink: #6c6c757a;
+  background: #f2f2ef;
+  color: #0a0a0c;
+  border-color: rgba(10, 10, 12, 0.1);
+}
+
+.vt-light .vt-dim {
+  color: rgba(10, 10, 12, 0.32);
+}
+
+.vt-light .vt-hairline {
+  background: linear-gradient(90deg, transparent, rgba(10, 10, 12, 0.14), transparent);
+}
+
+.vt-light .vt-panel {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(10, 10, 12, 0.09);
+}
+
+.vt-muted-on-light {
+  color: rgba(10, 10, 12, 0.56);
+}
+
+/* The slab. This is the section transition, not decoration. */
+.vt-slab {
+  border-radius: 2.2rem;
+}
+
+@media (max-width: 640px) {
+  .vt-slab {
+    border-radius: 1.4rem;
+  }
+}
+
+/* --------------------------------------------------------------- surfaces */
+
+/*
+  A bezelled panel: a hairline lip catching light at the top edge, over a
+  surface barely lighter than the page. Reads as a machined object rather than
+  a bordered box, which is what stops a grid of them looking like a card wall.
+*/
+.vt-panel {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.1rem;
+}
+
+.vt-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  pointer-events: none;
+}
+
+.vt-hairline {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.13), transparent);
+}
+
+/* Tighter grid for the hero, and one that survives on a light band too. */
+.vt-grid-fine {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 88px 88px;
+}
+
+.vt-light .vt-grid-fine {
+  background-image:
+    linear-gradient(to right, rgba(10, 10, 12, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(10, 10, 12, 0.055) 1px, transparent 1px);
+}
+
+.vt-fade-b {
+  -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 92%);
+  mask-image: linear-gradient(to bottom, black 30%, transparent 92%);
+}
+
+/* -------------------------------------------------------------- animation */
+
+@keyframes vt-trace {
+  0% { stroke-dashoffset: var(--vt-trace-len, 400); }
+  100% { stroke-dashoffset: 0; }
+}
+
+/* A value moving along the escrow path. */
+@keyframes vt-travel {
+  0% { offset-distance: 0%; opacity: 0; }
+  8% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+@keyframes vt-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.035); }
+}
+
+.vt-breathe {
+  animation: vt-breathe 5.5s ease-in-out infinite;
+}
+
+@keyframes vt-sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+/* Light travelling across a locked figure, once, when it scrolls in. */
+.vt-sweep::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.13), transparent);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+
+.vt-reveal[data-shown='true'] .vt-sweep::after {
+  animation: vt-sweep 1.7s cubic-bezier(0.22, 1, 0.36, 1) 0.25s 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vt-breathe,
+  .vt-sweep::after,
+  .vt-reveal[data-shown='true'] .vt-sweep::after {
+    animation: none !important;
+  }
+}

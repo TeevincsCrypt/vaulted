@@ -16,7 +16,7 @@
  * tables it uses, so point it at a scratch one.
  * Run: npm run check:notifications
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { PrismaClient } from '@prisma/client'
 import { getAddress } from 'viem'
@@ -304,6 +304,36 @@ step(3, 'The two moments that used to pass in silence: escrow on chain, and mone
   check(received[0]?.accountId === worker.id, 'and only the recipient')
   check(/2\.5/.test(received[0]?.body ?? ''), `naming what arrived (${received[0]?.body ?? 'none'})`)
   check(/@checkclient/.test(received[0]?.body ?? ''), 'and who it came from')
+}
+
+step(4, 'Every notification points at a page that exists')
+{
+  /*
+    A notification whose link 404s is worse than no notification: it says something happened and
+    then loses the person on the way to it. One shipped that way — "payment received" pointed at
+    /requests, which is not a page, only /requests/{id} is — so the destinations are checked here
+    against the routes actually on disk rather than read back by eye.
+  */
+  const routes = readdirSync(path.join(ROOT, 'app'), { withFileTypes: true, recursive: true })
+    .filter((entry) => entry.name === 'page.tsx')
+    .map((entry) => {
+      const rel = path.relative(path.join(ROOT, 'app'), path.join(entry.parentPath ?? entry.path, entry.name))
+      return '/' + path.dirname(rel).replace(/\\/g, '/').replace(/^\.$/, '')
+    })
+    .map((route) => (route === '/' ? '/' : route.replace(/\/$/, '')))
+
+  // A dynamic segment matches anything, so compare shapes rather than literal strings.
+  const shapes = new Set(routes.map((route) => route.replace(/\[[^\]]+\]/g, '*')))
+
+  const hrefs = [...readFileSync(path.join(ROOT, 'lib/vaulted/server/notifications.ts'), 'utf8')
+    .matchAll(/href:\s*[`'"]([^`'"$]*(?:\$\{[^}]*\}[^`'"$]*)*)[`'"]/g)]
+    .map((match) => match[1])
+
+  check(hrefs.length >= 8, `notification destinations were found to check (${hrefs.length})`)
+  for (const href of hrefs) {
+    const shape = href.replace(/\$\{[^}]*\}/g, '*').replace(/\?.*$/, '')
+    check(shapes.has(shape), `${href} resolves to a real page (${shape})`)
+  }
 }
 
 await prisma.notification.deleteMany({})
